@@ -1,0 +1,13 @@
+// Barrel export — this is the entry point drizzle-kit reads (see
+// drizzle.config.ts `schema`) and the module app code imports from.
+
+export * from "./enums";
+export * from "./identity";
+export * from "./application";
+export * from "./catalogue";
+export * from "./assessment";
+export * from "./quote-recommendation";
+export * from "./review";
+export * from "./policy-ledger";
+export * from "./plan-fit";
+export * from "./views";

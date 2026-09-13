@@ -1,0 +1,2644 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "219a3dba-1de4-4156-afa6-8c4e1676aa98",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "app_user": {
+      "name": "app_user",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "app_user_email_unique": {
+          "name": "app_user_email_unique",
+          "columns": [
+            "email"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "person": {
+      "name": "person",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "relationship_to_owner": {
+          "name": "relationship_to_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'self'"
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "date_of_birth": {
+          "name": "date_of_birth",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "marital_status": {
+          "name": "marital_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "smoker": {
+          "name": "smoker",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "emirate": {
+          "name": "emirate",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "person_external_ref_unique": {
+          "name": "person_external_ref_unique",
+          "columns": [
+            "external_ref"
+          ],
+          "isUnique": true
+        },
+        "person_owner_user_id_idx": {
+          "name": "person_owner_user_id_idx",
+          "columns": [
+            "owner_user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "person_owner_user_id_app_user_id_fk": {
+          "name": "person_owner_user_id_app_user_id_fk",
+          "tableFrom": "person",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application": {
+      "name": "application",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "intake_source": {
+          "name": "intake_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "age": {
+          "name": "age",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "marital_status": {
+          "name": "marital_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "smoker": {
+          "name": "smoker",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "emirate": {
+          "name": "emirate",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "budget": {
+          "name": "budget",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_inception": {
+          "name": "policy_inception",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "treatment_outside_uae_expected": {
+          "name": "treatment_outside_uae_expected",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status_changed_at": {
+          "name": "status_changed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "application_reference_unique": {
+          "name": "application_reference_unique",
+          "columns": [
+            "reference"
+          ],
+          "isUnique": true
+        },
+        "application_person_id_idx": {
+          "name": "application_person_id_idx",
+          "columns": [
+            "person_id"
+          ],
+          "isUnique": false
+        },
+        "application_status_idx": {
+          "name": "application_status_idx",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "application_person_id_person_id_fk": {
+          "name": "application_person_id_person_id_fk",
+          "tableFrom": "application",
+          "tableTo": "person",
+          "columnsFrom": [
+            "person_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "application_created_by_user_id_app_user_id_fk": {
+          "name": "application_created_by_user_id_app_user_id_fk",
+          "tableFrom": "application",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "application_age_range": {
+          "name": "application_age_range",
+          "value": "\"application\".\"age\" between 18 and 100"
+        },
+        "confirmed_needs_timestamp": {
+          "name": "confirmed_needs_timestamp",
+          "value": "\"application\".\"status\" <> 'confirmed' or \"application\".\"confirmed_at\" is not null"
+        }
+      }
+    },
+    "application_condition": {
+      "name": "application_condition",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "condition_code": {
+          "name": "condition_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stability": {
+          "name": "stability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unknown'"
+        },
+        "declared_at_intake": {
+          "name": "declared_at_intake",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "entered_by_user_id": {
+          "name": "entered_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "application_condition_application_id_idx": {
+          "name": "application_condition_application_id_idx",
+          "columns": [
+            "application_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "application_condition_application_id_application_id_fk": {
+          "name": "application_condition_application_id_application_id_fk",
+          "tableFrom": "application_condition",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "application_condition_entered_by_user_id_app_user_id_fk": {
+          "name": "application_condition_entered_by_user_id_app_user_id_fk",
+          "tableFrom": "application_condition",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "entered_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application_expected_provider": {
+      "name": "application_expected_provider",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_name": {
+          "name": "provider_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "application_expected_provider_application_id_application_id_fk": {
+          "name": "application_expected_provider_application_id_application_id_fk",
+          "tableFrom": "application_expected_provider",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application_medication": {
+      "name": "application_medication",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "application_medication_application_id_application_id_fk": {
+          "name": "application_medication_application_id_application_id_fk",
+          "tableFrom": "application_medication",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application_need": {
+      "name": "application_need",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "benefit_class": {
+          "name": "benefit_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "horizon_months": {
+          "name": "horizon_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "application_need_application_id_idx": {
+          "name": "application_need_application_id_idx",
+          "columns": [
+            "application_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "application_need_application_id_application_id_fk": {
+          "name": "application_need_application_id_application_id_fk",
+          "tableFrom": "application_need",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "application_need_horizon_nonneg": {
+          "name": "application_need_horizon_nonneg",
+          "value": "\"application_need\".\"horizon_months\" >= 0"
+        }
+      }
+    },
+    "application_priority": {
+      "name": "application_priority",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag": {
+          "name": "tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'other'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "application_priority_application_id_application_id_fk": {
+          "name": "application_priority_application_id_application_id_fk",
+          "tableFrom": "application_priority",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application_procedure": {
+      "name": "application_procedure",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_on": {
+          "name": "occurred_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "application_procedure_application_id_application_id_fk": {
+          "name": "application_procedure_application_id_application_id_fk",
+          "tableFrom": "application_procedure",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "application_status_history": {
+      "name": "application_status_history",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "from_status": {
+          "name": "from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "to_status": {
+          "name": "to_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "changed_by": {
+          "name": "changed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "changed_by_user_id": {
+          "name": "changed_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "application_status_history_app_changed_idx": {
+          "name": "application_status_history_app_changed_idx",
+          "columns": [
+            "application_id",
+            "changed_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "application_status_history_application_id_application_id_fk": {
+          "name": "application_status_history_application_id_application_id_fk",
+          "tableFrom": "application_status_history",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "application_status_history_changed_by_user_id_app_user_id_fk": {
+          "name": "application_status_history_changed_by_user_id_app_user_id_fk",
+          "tableFrom": "application_status_history",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "changed_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "carrier": {
+      "name": "carrier",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "network_admits": {
+      "name": "network_admits",
+      "columns": {
+        "network": {
+          "name": "network",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_tier": {
+          "name": "provider_tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "network_admits_network_provider_tier_pk": {
+          "columns": [
+            "network",
+            "provider_tier"
+          ],
+          "name": "network_admits_network_provider_tier_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "plan": {
+      "name": "plan",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "carrier_id": {
+          "name": "carrier_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "annual_premium": {
+          "name": "annual_premium",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deductible": {
+          "name": "deductible",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "network": {
+          "name": "network",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "network_note": {
+          "name": "network_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outpatient_copay_pct": {
+          "name": "outpatient_copay_pct",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "annual_limit": {
+          "name": "annual_limit",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dental_optical": {
+          "name": "dental_optical",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "maternity_covered": {
+          "name": "maternity_covered",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "maternity_waiting_period_months": {
+          "name": "maternity_waiting_period_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "maternity_limit": {
+          "name": "maternity_limit",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "chronic_covered": {
+          "name": "chronic_covered",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chronic_waiting_period_months": {
+          "name": "chronic_waiting_period_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_to": {
+          "name": "effective_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "plan_carrier_id_carrier_id_fk": {
+          "name": "plan_carrier_id_carrier_id_fk",
+          "tableFrom": "plan",
+          "tableTo": "carrier",
+          "columnsFrom": [
+            "carrier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "maternity_terms_present": {
+          "name": "maternity_terms_present",
+          "value": "not \"plan\".\"maternity_covered\" or (\"plan\".\"maternity_waiting_period_months\" is not null and \"plan\".\"maternity_limit\" is not null)"
+        },
+        "chronic_terms_present": {
+          "name": "chronic_terms_present",
+          "value": "not \"plan\".\"chronic_covered\" or \"plan\".\"chronic_waiting_period_months\" is not null"
+        }
+      }
+    },
+    "assessment": {
+      "name": "assessment",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cohort": {
+          "name": "cohort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'system'"
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "assessment_application_id_idx": {
+          "name": "assessment_application_id_idx",
+          "columns": [
+            "application_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "assessment_application_id_application_id_fk": {
+          "name": "assessment_application_id_application_id_fk",
+          "tableFrom": "assessment",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "assessment_created_by_user_id_app_user_id_fk": {
+          "name": "assessment_created_by_user_id_app_user_id_fk",
+          "tableFrom": "assessment",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "assessment_flag": {
+      "name": "assessment_flag",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assessment_id": {
+          "name": "assessment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rule_code": {
+          "name": "rule_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "severity": {
+          "name": "severity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fields": {
+          "name": "fields",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "assessment_flag_assessment_id_idx": {
+          "name": "assessment_flag_assessment_id_idx",
+          "columns": [
+            "assessment_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "assessment_flag_assessment_id_assessment_id_fk": {
+          "name": "assessment_flag_assessment_id_assessment_id_fk",
+          "tableFrom": "assessment_flag",
+          "tableTo": "assessment",
+          "columnsFrom": [
+            "assessment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "quote": {
+      "name": "quote",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "annual_premium": {
+          "name": "annual_premium",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "eligible": {
+          "name": "eligible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "rank": {
+          "name": "rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "score": {
+          "name": "score",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "quote_application_id_plan_id_key": {
+          "name": "quote_application_id_plan_id_key",
+          "columns": [
+            "application_id",
+            "plan_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "quote_application_id_application_id_fk": {
+          "name": "quote_application_id_application_id_fk",
+          "tableFrom": "quote",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "quote_plan_id_plan_id_fk": {
+          "name": "quote_plan_id_plan_id_fk",
+          "tableFrom": "quote",
+          "tableTo": "plan",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "recommendation": {
+      "name": "recommendation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending_review'"
+        },
+        "broker_reasoning": {
+          "name": "broker_reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_reasoning": {
+          "name": "member_reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'system'"
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "one_live_recommendation": {
+          "name": "one_live_recommendation",
+          "columns": [
+            "application_id"
+          ],
+          "isUnique": true,
+          "where": "\"recommendation\".\"status\" in ('pending_review', 'approved', 'edited', 'overridden')"
+        },
+        "recommendation_application_id_version_key": {
+          "name": "recommendation_application_id_version_key",
+          "columns": [
+            "application_id",
+            "version"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "recommendation_application_id_application_id_fk": {
+          "name": "recommendation_application_id_application_id_fk",
+          "tableFrom": "recommendation",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "recommendation_plan_id_plan_id_fk": {
+          "name": "recommendation_plan_id_plan_id_fk",
+          "tableFrom": "recommendation",
+          "tableTo": "plan",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "recommendation_created_by_user_id_app_user_id_fk": {
+          "name": "recommendation_created_by_user_id_app_user_id_fk",
+          "tableFrom": "recommendation",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "recommendation_rejection": {
+      "name": "recommendation_rejection",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "recommendation_rejection_recommendation_id_plan_id_key": {
+          "name": "recommendation_rejection_recommendation_id_plan_id_key",
+          "columns": [
+            "recommendation_id",
+            "plan_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "recommendation_rejection_recommendation_id_recommendation_id_fk": {
+          "name": "recommendation_rejection_recommendation_id_recommendation_id_fk",
+          "tableFrom": "recommendation_rejection",
+          "tableTo": "recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "recommendation_rejection_plan_id_plan_id_fk": {
+          "name": "recommendation_rejection_plan_id_plan_id_fk",
+          "tableFrom": "recommendation_rejection",
+          "tableTo": "plan",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "review_decision": {
+      "name": "review_decision",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "review_task_id": {
+          "name": "review_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "review_decision_review_task_id_idx": {
+          "name": "review_decision_review_task_id_idx",
+          "columns": [
+            "review_task_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "review_decision_review_task_id_review_task_id_fk": {
+          "name": "review_decision_review_task_id_review_task_id_fk",
+          "tableFrom": "review_decision",
+          "tableTo": "review_task",
+          "columnsFrom": [
+            "review_task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "review_decision_actor_user_id_app_user_id_fk": {
+          "name": "review_decision_actor_user_id_app_user_id_fk",
+          "tableFrom": "review_decision",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "review_task": {
+      "name": "review_task",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_type": {
+          "name": "subject_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_id": {
+          "name": "subject_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "priority_score": {
+          "name": "priority_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
+        },
+        "assigned_to_user_id": {
+          "name": "assigned_to_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "review_task_status_priority_idx": {
+          "name": "review_task_status_priority_idx",
+          "columns": [
+            "status",
+            "\"priority_score\" desc"
+          ],
+          "isUnique": false
+        },
+        "review_task_subject_idx": {
+          "name": "review_task_subject_idx",
+          "columns": [
+            "subject_type",
+            "subject_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "review_task_assigned_to_user_id_app_user_id_fk": {
+          "name": "review_task_assigned_to_user_id_app_user_id_fk",
+          "tableFrom": "review_task",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "assigned_to_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "benefit_ledger": {
+      "name": "benefit_ledger",
+      "columns": {
+        "policy_id": {
+          "name": "policy_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deductible_met": {
+          "name": "deductible_met",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "annual_paid": {
+          "name": "annual_paid",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "sublimit_used": {
+          "name": "sublimit_used",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{\"maternity\":0,\"dental_optical\":0}'"
+        },
+        "last_event_id": {
+          "name": "last_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rebuilt_at": {
+          "name": "rebuilt_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "benefit_ledger_policy_id_policy_id_fk": {
+          "name": "benefit_ledger_policy_id_policy_id_fk",
+          "tableFrom": "benefit_ledger",
+          "tableTo": "policy",
+          "columnsFrom": [
+            "policy_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "benefit_ledger_last_event_id_servicing_event_id_fk": {
+          "name": "benefit_ledger_last_event_id_servicing_event_id_fk",
+          "tableFrom": "benefit_ledger",
+          "tableTo": "servicing_event",
+          "columnsFrom": [
+            "last_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "policy": {
+      "name": "policy",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "policy_number": {
+          "name": "policy_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "inception_date": {
+          "name": "inception_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "annual_premium": {
+          "name": "annual_premium",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "policy_external_ref_unique": {
+          "name": "policy_external_ref_unique",
+          "columns": [
+            "external_ref"
+          ],
+          "isUnique": true
+        },
+        "policy_application_id_unique": {
+          "name": "policy_application_id_unique",
+          "columns": [
+            "application_id"
+          ],
+          "isUnique": true
+        },
+        "policy_policy_number_unique": {
+          "name": "policy_policy_number_unique",
+          "columns": [
+            "policy_number"
+          ],
+          "isUnique": true
+        },
+        "policy_person_id_idx": {
+          "name": "policy_person_id_idx",
+          "columns": [
+            "person_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "policy_application_id_application_id_fk": {
+          "name": "policy_application_id_application_id_fk",
+          "tableFrom": "policy",
+          "tableTo": "application",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "policy_person_id_person_id_fk": {
+          "name": "policy_person_id_person_id_fk",
+          "tableFrom": "policy",
+          "tableTo": "person",
+          "columnsFrom": [
+            "person_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "policy_plan_id_plan_id_fk": {
+          "name": "policy_plan_id_plan_id_fk",
+          "tableFrom": "policy",
+          "tableTo": "plan",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "policy_recommendation_id_recommendation_id_fk": {
+          "name": "policy_recommendation_id_recommendation_id_fk",
+          "tableFrom": "policy",
+          "tableTo": "recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "servicing_event": {
+      "name": "servicing_event",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "policy_id": {
+          "name": "policy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_month": {
+          "name": "policy_month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "benefit_class": {
+          "name": "benefit_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "setting": {
+          "name": "setting",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "provider_tier": {
+          "name": "provider_tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billed_amount": {
+          "name": "billed_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "estimated_amount": {
+          "name": "estimated_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "evidence_text": {
+          "name": "evidence_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "submitted_by_user_id": {
+          "name": "submitted_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "occurred_on": {
+          "name": "occurred_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "plan_pays": {
+          "name": "plan_pays",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "member_pays": {
+          "name": "member_pays",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "calculation": {
+          "name": "calculation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ledger_before": {
+          "name": "ledger_before",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ledger_after": {
+          "name": "ledger_after",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "member_explanation": {
+          "name": "member_explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "broker_explanation": {
+          "name": "broker_explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decided_by_user_id": {
+          "name": "decided_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supersedes_event_id": {
+          "name": "supersedes_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "appeal_of_event_id": {
+          "name": "appeal_of_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "servicing_event_external_ref_unique": {
+          "name": "servicing_event_external_ref_unique",
+          "columns": [
+            "external_ref"
+          ],
+          "isUnique": true
+        },
+        "servicing_event_policy_month_idx": {
+          "name": "servicing_event_policy_month_idx",
+          "columns": [
+            "policy_id",
+            "policy_month"
+          ],
+          "isUnique": false
+        },
+        "servicing_event_policy_created_idx": {
+          "name": "servicing_event_policy_created_idx",
+          "columns": [
+            "policy_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "servicing_event_policy_id_policy_id_fk": {
+          "name": "servicing_event_policy_id_policy_id_fk",
+          "tableFrom": "servicing_event",
+          "tableTo": "policy",
+          "columnsFrom": [
+            "policy_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "servicing_event_submitted_by_user_id_app_user_id_fk": {
+          "name": "servicing_event_submitted_by_user_id_app_user_id_fk",
+          "tableFrom": "servicing_event",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "submitted_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "servicing_event_decided_by_user_id_app_user_id_fk": {
+          "name": "servicing_event_decided_by_user_id_app_user_id_fk",
+          "tableFrom": "servicing_event",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "decided_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "servicing_event_supersedes_event_id_servicing_event_id_fk": {
+          "name": "servicing_event_supersedes_event_id_servicing_event_id_fk",
+          "tableFrom": "servicing_event",
+          "tableTo": "servicing_event",
+          "columnsFrom": [
+            "supersedes_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "servicing_event_appeal_of_event_id_servicing_event_id_fk": {
+          "name": "servicing_event_appeal_of_event_id_servicing_event_id_fk",
+          "tableFrom": "servicing_event",
+          "tableTo": "servicing_event",
+          "columnsFrom": [
+            "appeal_of_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "amount_matches_kind": {
+          "name": "amount_matches_kind",
+          "value": "(\"servicing_event\".\"kind\" = 'preauth' and \"servicing_event\".\"estimated_amount\" is not null)\n        or (\"servicing_event\".\"kind\" in ('claim', 'reimbursement') and \"servicing_event\".\"billed_amount\" is not null)\n        or (\"servicing_event\".\"kind\" = 'appeal')"
+        }
+      }
+    },
+    "plan_fit_reassessment": {
+      "name": "plan_fit_reassessment",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_id": {
+          "name": "policy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "triggered_by_event_id": {
+          "name": "triggered_by_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "verdict": {
+          "name": "verdict",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommended_plan_id": {
+          "name": "recommended_plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "broker_reasoning": {
+          "name": "broker_reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_reasoning": {
+          "name": "member_reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'system'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "plan_fit_reassessment_policy_id_idx": {
+          "name": "plan_fit_reassessment_policy_id_idx",
+          "columns": [
+            "policy_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "plan_fit_reassessment_policy_id_policy_id_fk": {
+          "name": "plan_fit_reassessment_policy_id_policy_id_fk",
+          "tableFrom": "plan_fit_reassessment",
+          "tableTo": "policy",
+          "columnsFrom": [
+            "policy_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "plan_fit_reassessment_triggered_by_event_id_servicing_event_id_fk": {
+          "name": "plan_fit_reassessment_triggered_by_event_id_servicing_event_id_fk",
+          "tableFrom": "plan_fit_reassessment",
+          "tableTo": "servicing_event",
+          "columnsFrom": [
+            "triggered_by_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "plan_fit_reassessment_recommended_plan_id_plan_id_fk": {
+          "name": "plan_fit_reassessment_recommended_plan_id_plan_id_fk",
+          "tableFrom": "plan_fit_reassessment",
+          "tableTo": "plan",
+          "columnsFrom": [
+            "recommended_plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "change_needs_target": {
+          "name": "change_needs_target",
+          "value": "\"plan_fit_reassessment\".\"verdict\" <> 'recommend_change' or \"plan_fit_reassessment\".\"recommended_plan_id\" is not null"
+        }
+      }
+    }
+  },
+  "views": {
+    "customer_event_view": {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "policy_id": {
+          "name": "policy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_month": {
+          "name": "policy_month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "benefit_class": {
+          "name": "benefit_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billed_amount": {
+          "name": "billed_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "estimated_amount": {
+          "name": "estimated_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "plan_pays": {
+          "name": "plan_pays",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "member_pays": {
+          "name": "member_pays",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "explanation": {
+          "name": "explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "calculation": {
+          "name": "calculation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "customer_event_view",
+      "isExisting": false,
+      "definition": "\n  select e.id, e.external_ref, e.policy_id, e.kind, e.policy_month, e.benefit_class,\n         e.description, e.billed_amount, e.estimated_amount,\n         e.outcome, e.plan_pays, e.member_pays,\n         e.member_explanation as explanation,\n         e.calculation, e.created_at\n  from servicing_event e\n"
+    },
+    "customer_policy_view": {
+      "columns": {
+        "policy_id": {
+          "name": "policy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_number": {
+          "name": "policy_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "inception_date": {
+          "name": "inception_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_name": {
+          "name": "plan_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "annual_premium": {
+          "name": "annual_premium",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deductible_met": {
+          "name": "deductible_met",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "annual_paid": {
+          "name": "annual_paid",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sublimit_used": {
+          "name": "sublimit_used",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "name": "customer_policy_view",
+      "isExisting": false,
+      "definition": "\n  select p.id            as policy_id,\n         p.policy_number,\n         p.inception_date,\n         p.status,\n         pl.name         as plan_name,\n         pl.annual_premium,\n         pe.full_name,\n         l.deductible_met,\n         l.annual_paid,\n         l.sublimit_used\n  from policy p\n  join plan   pl on pl.id = p.plan_id\n  join person pe on pe.id = p.person_id\n  left join benefit_ledger l on l.policy_id = p.id\n"
+    }
+  },
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {
+      "review_task_status_priority_idx": {
+        "columns": {
+          "\"priority_score\" desc": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}
