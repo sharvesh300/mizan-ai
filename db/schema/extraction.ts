@@ -13,6 +13,8 @@ import { conversationQuestion } from "./questions";
 // the rule from INTAKE_VALIDATION.md §4, enforced in the database: a gating
 // field may be stated or normalised. It may never be inferred.
 const gatedFieldKeys = [
+  "person.relationship",
+  "person.full_name",
   "application.age",
   "application.smoker",
   "application.budget",
