@@ -5,7 +5,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { aiDecision } from "./ai-decision";
-import { amount, createdAt, uuidPk } from "./columns";
+import { amount, col, createdAt, uuidPk } from "./columns";
 import { conversation, message } from "./conversation";
 import { extractionMethodEnum } from "./enums";
 import { conversationQuestion } from "./questions";
@@ -49,10 +49,10 @@ export const extraction = sqliteTable(
   (table) => [
     index("extraction_target_table_row_idx").on(table.targetTable, table.targetRowId),
     index("extraction_conversation_id_idx").on(table.conversationId),
-    check("extraction_confidence_range", sql`${table.confidence} between 0 and 1`),
+    check("extraction_confidence_range", sql`${col("confidence")} between 0 and 1`),
     check(
       "no_inference_on_gated_fields",
-      sql`${table.method} <> 'inferred' or ${table.fieldKey} not in (${sql.raw(
+      sql`${col("method")} <> 'inferred' or ${col("field_key")} not in (${sql.raw(
         gatedFieldKeys.map((key) => `'${key}'`).join(", "),
       )})`,
     ),

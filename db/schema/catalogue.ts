@@ -4,7 +4,7 @@
 
 import { sql } from "drizzle-orm";
 import { check, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { amount } from "./columns";
+import { amount, col } from "./columns";
 import { dentalOpticalTierEnum, networkTierEnum, providerTierEnum } from "./enums";
 
 export const carrier = sqliteTable("carrier", {
@@ -36,14 +36,15 @@ export const plan = sqliteTable(
     effectiveFrom: text("effective_from"),
     effectiveTo: text("effective_to"),
   },
-  (table) => [
+  // No `table` param: every reference inside a CHECK is unqualified by design.
+  () => [
     check(
       "maternity_terms_present",
-      sql`not ${table.maternityCovered} or (${table.maternityWaitingPeriodMonths} is not null and ${table.maternityLimit} is not null)`,
+      sql`not ${col("maternity_covered")} or (${col("maternity_waiting_period_months")} is not null and ${col("maternity_limit")} is not null)`,
     ),
     check(
       "chronic_terms_present",
-      sql`not ${table.chronicCovered} or ${table.chronicWaitingPeriodMonths} is not null`,
+      sql`not ${col("chronic_covered")} or ${col("chronic_waiting_period_months")} is not null`,
     ),
   ],
 );

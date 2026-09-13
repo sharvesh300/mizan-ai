@@ -4,7 +4,7 @@
 
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createdAt, uuidPk } from "./columns";
+import { col, createdAt, uuidPk } from "./columns";
 import {
   actorKindEnum,
   applicationStatusEnum,
@@ -51,10 +51,10 @@ export const application = sqliteTable(
   (table) => [
     index("application_person_id_idx").on(table.personId),
     index("application_status_idx").on(table.status),
-    check("application_age_range", sql`${table.age} between 18 and 100`),
+    check("application_age_range", sql`${col("age")} between 18 and 100`),
     check(
       "confirmed_needs_timestamp",
-      sql`${table.status} <> 'confirmed' or ${table.confirmedAt} is not null`,
+      sql`${col("status")} <> 'confirmed' or ${col("confirmed_at")} is not null`,
     ),
   ],
 );

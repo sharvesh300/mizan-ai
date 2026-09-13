@@ -66,6 +66,23 @@ export const providerTierEnum = [
 ] as const;
 export type ProviderTier = (typeof providerTierEnum)[number];
 
+// What a CLAIM may carry, which is not the same set. `provider_tier` above is
+// the network-admission vocabulary — the five tiers `network_admits` maps and
+// a plan's network gate is evaluated against. A submitted claim can name a
+// provider that sits outside that vocabulary entirely (CLM-9: a foreign
+// provider, tier unknown), and that is not a sixth tier the gate can admit or
+// refuse — it is the absence of a tier. Kept as a separate enum so
+// `network_admits` and the gate stay closed over the five real tiers.
+export const claimProviderTierEnum = [...providerTierEnum, "unknown_foreign"] as const;
+export type ClaimProviderTier = (typeof claimProviderTierEnum)[number];
+
+// Geographic scope is THE undefined case in the supplied data (servicing_spec
+// §4). The column exists so the adjudicator can SEE 'abroad' and return
+// `insufficient_data` off it, rather than inventing a rule or silently
+// treating a foreign claim as domestic.
+export const geographyEnum = ["uae", "abroad", "unknown"] as const;
+export type Geography = (typeof geographyEnum)[number];
+
 export const dentalOpticalTierEnum = ["none", "basic", "full"] as const;
 export type DentalOpticalTier = (typeof dentalOpticalTierEnum)[number];
 

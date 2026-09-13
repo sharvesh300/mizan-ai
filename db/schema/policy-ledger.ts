@@ -9,15 +9,16 @@
 
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
-import { amount, createdAt, uuidPk } from "./columns";
+import { amount, col, createdAt, uuidPk } from "./columns";
 import {
   actorKindEnum,
   benefitClassEnum,
   careSettingEnum,
+  claimProviderTierEnum,
   eventKindEnum,
   eventOutcomeEnum,
+  geographyEnum,
   policyStatusEnum,
-  providerTierEnum,
   reasonCodeEnum,
 } from "./enums";
 import { application } from "./application";
@@ -63,7 +64,11 @@ export const servicingEvent = sqliteTable(
     policyMonth: integer("policy_month").notNull(),
     benefitClass: text("benefit_class", { enum: benefitClassEnum }),
     setting: text("setting", { enum: careSettingEnum }),
-    providerTier: text("provider_tier", { enum: providerTierEnum }),
+    providerTier: text("provider_tier", { enum: claimProviderTierEnum }),
+    // Null or 'abroad' is not a gap in the record — it is the finding. The
+    // plan data defines no geographic scope, so anything not in the UAE is
+    // undecidable from plan terms and must route to a reviewer.
+    geography: text("geography", { enum: geographyEnum }).notNull().default("uae"),
     billedAmount: amount("billed_amount"), // claim / reimbursement
     estimatedAmount: amount("estimated_amount"), // preauth
     description: text("description"),
@@ -82,6 +87,12 @@ export const servicingEvent = sqliteTable(
     memberExplanation: text("member_explanation"),
     brokerExplanation: text("broker_explanation"),
 
+    // How settled this adjudication is — broker-only, never projected into
+    // customer_event_view. A clean in-network claim and an undecidable
+    // foreign one must not arrive in the queue looking equally resolved.
+    confidence: amount("confidence"), // 0..1
+    uncertaintyReason: text("uncertainty_reason"), // why this one needs a human, in words
+
     decidedBy: text("decided_by", { enum: actorKindEnum }),
     decidedByUserId: text("decided_by_user_id").references(() => appUser.id),
     supersedesEventId: text("supersedes_event_id").references((): AnySQLiteColumn => servicingEvent.id),
@@ -91,11 +102,12 @@ export const servicingEvent = sqliteTable(
   (table) => [
     index("servicing_event_policy_month_idx").on(table.policyId, table.policyMonth),
     index("servicing_event_policy_created_idx").on(table.policyId, table.createdAt),
+    check("servicing_event_confidence_range", sql`${col("confidence")} between 0 and 1`),
     check(
       "amount_matches_kind",
-      sql`(${table.kind} = 'preauth' and ${table.estimatedAmount} is not null)
-        or (${table.kind} in ('claim', 'reimbursement') and ${table.billedAmount} is not null)
-        or (${table.kind} = 'appeal')`,
+      sql`(${col("kind")} = 'preauth' and ${col("estimated_amount")} is not null)
+        or (${col("kind")} in ('claim', 'reimbursement') and ${col("billed_amount")} is not null)
+        or (${col("kind")} = 'appeal')`,
     ),
   ],
 );

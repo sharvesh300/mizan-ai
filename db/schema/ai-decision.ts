@@ -4,7 +4,7 @@
 
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
-import { amount, createdAt, uuidPk } from "./columns";
+import { amount, col, createdAt, uuidPk } from "./columns";
 import { aiDecisionStatusEnum, aiDecisionTypeEnum, modelRunStatusEnum } from "./enums";
 import { conversation } from "./conversation";
 import { reviewTask } from "./review";
@@ -59,15 +59,15 @@ export const aiDecision = sqliteTable(
     index("ai_decision_subject_idx").on(table.subjectType, table.subjectId),
     index("ai_decision_status_requires_review_idx").on(table.status, table.requiresReview),
     index("ai_decision_type_created_idx").on(table.decisionType, table.createdAt),
-    check("ai_decision_confidence_range", sql`${table.confidence} between 0 and 1`),
+    check("ai_decision_confidence_range", sql`${col("confidence")} between 0 and 1`),
     // a proposal that admits low confidence cannot also auto-apply
     check(
       "low_confidence_needs_review",
-      sql`${table.confidence} is null or ${table.confidence} >= 0.75 or ${table.requiresReview} = true`,
+      sql`${col("confidence")} is null or ${col("confidence")} >= 0.75 or ${col("requires_review")} = true`,
     ),
     check(
       "review_resolution_recorded",
-      sql`${table.status} not in ('accepted', 'edited', 'rejected') or ${table.resolvedAt} is not null`,
+      sql`${col("status")} not in ('accepted', 'edited', 'rejected') or ${col("resolved_at")} is not null`,
     ),
   ],
 );

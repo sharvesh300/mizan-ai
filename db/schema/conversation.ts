@@ -9,7 +9,7 @@ import { desc, sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, unique, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { application } from "./application";
 import { channelIdentity, messageTemplate } from "./channels";
-import { createdAt, uuidPk } from "./columns";
+import { col, createdAt, uuidPk } from "./columns";
 import {
   channelEnum,
   conversationPurposeEnum,
@@ -83,10 +83,10 @@ export const message = sqliteTable(
   (table) => [
     unique("message_conversation_id_seq_key").on(table.conversationId, table.seq),
     unique("message_provider_external_message_id_key").on(table.provider, table.externalMessageId),
-    check("template_only_outbound", sql`${table.type} <> 'template' or ${table.direction} = 'outbound'`),
+    check("template_only_outbound", sql`${col("type")} <> 'template' or ${col("direction")} = 'outbound'`),
     check(
       "has_content",
-      sql`${table.bodyText} is not null or ${table.payload} is not null or ${table.templateId} is not null or ${table.type} = 'media'`,
+      sql`${col("body_text")} is not null or ${col("payload")} is not null or ${col("template_id")} is not null or ${col("type")} = 'media'`,
     ),
     index("message_conversation_provider_ts_idx").on(table.conversationId, table.providerTimestamp),
   ],

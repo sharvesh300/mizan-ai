@@ -5,7 +5,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { conversation, message } from "./conversation";
-import { createdAt, uuidPk } from "./columns";
+import { col, createdAt, uuidPk } from "./columns";
 import { flagSeverityEnum, questionStatusEnum } from "./enums";
 
 export const conversationQuestion = sqliteTable(
@@ -35,10 +35,10 @@ export const conversationQuestion = sqliteTable(
   (table) => [
     index("conversation_question_conversation_status_idx").on(table.conversationId, table.status),
     index("conversation_question_field_key_idx").on(table.fieldKey),
-    check("conversation_question_ask_count_max", sql`${table.askCount} <= 2`),
+    check("conversation_question_ask_count_max", sql`${col("ask_count")} <= 2`),
     check(
       "answered_has_answer",
-      sql`${table.status} <> 'answered' or ${table.answeredMessageId} is not null`,
+      sql`${col("status")} <> 'answered' or ${col("answered_message_id")} is not null`,
     ),
   ],
 );
