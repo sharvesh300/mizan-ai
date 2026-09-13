@@ -1,4 +1,5 @@
 import { PageBody, PageHeader } from "@/components/page-header";
+import { SubjectFields } from "@/components/subject-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,9 +25,24 @@ export default function IntakeFormPage() {
         description="Everything here goes to an advisor along with the plan we suggest. Only age and budget are required — the rest helps us match you better."
       />
       <PageBody>
-        {/* A plain server-action form: no client state, so it works before
-            hydration and every field name maps to one column. */}
+        {/* A plain server-action form: every field name maps to one column,
+            so it works before hydration. `SubjectFields` is the one bit of
+            client state — showing the name field only once it's needed. */}
         <form action={submitIntakeForm} className="mx-auto max-w-3xl space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Who is this for</CardTitle>
+              <CardDescription>Applying for yourself or someone in your family — either way, in one place.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldSet>
+                <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
+                  <SubjectFields />
+                </FieldGroup>
+              </FieldSet>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>About you</CardTitle>
