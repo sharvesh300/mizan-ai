@@ -20,6 +20,7 @@ import {
   parseBudget,
   parseHorizonMonths,
   parseMaritalStatus,
+  parseRelationship,
   saysNothing,
   splitList,
   type IntakeDraft,
@@ -45,12 +46,59 @@ export type Step = {
 
 const ok = (draft: IntakeDraft, valueText: string): Applied => ({ ok: true, draft, valueText });
 
+/** Whether this application is for someone other than the applicant. */
+const forSomeoneElse = (draft: IntakeDraft) =>
+  draft.subjectRelationship != null && draft.subjectRelationship !== "self";
+
 export const STEPS: Step[] = [
+  {
+    key: "person.relationship",
+    target: { table: "person", column: "relationship_to_owner" },
+    severity: "block",
+    prompt: () => "To start — who is this application for? You, or someone else?",
+    suggestions: () => ["Myself", "My spouse", "My child", "My parent", "Someone else"],
+    apply: (draft, text) => {
+      const relationship = parseRelationship(text);
+      if (relationship == null) {
+        return { ok: false, retry: "Is this for yourself, your spouse, your child, your parent, or someone else?" };
+      }
+      return ok(
+        {
+          ...draft,
+          subjectRelationship: relationship,
+          subjectFullName: relationship === "self" ? null : draft.subjectFullName,
+        },
+        relationship,
+      );
+    },
+  },
+  {
+    key: "person.full_name",
+    target: { table: "person", column: "full_name" },
+    severity: "block",
+    // Only worth asking once we know it isn't the applicant themselves.
+    skip: (draft) => !forSomeoneElse(draft),
+    prompt: (draft) =>
+      `What's ${
+        draft.subjectRelationship === "spouse"
+          ? "your spouse's"
+          : draft.subjectRelationship === "child"
+            ? "your child's"
+            : draft.subjectRelationship === "parent"
+              ? "your parent's"
+              : "their"
+      } full name?`,
+    apply: (draft, text) => {
+      const fullName = text.trim();
+      if (fullName.length < 2) return { ok: false, retry: "Just their full name is fine." };
+      return ok({ ...draft, subjectFullName: fullName }, fullName);
+    },
+  },
   {
     key: "application.age",
     target: { table: "application", column: "age" },
     severity: "block",
-    prompt: () => "To get started — how old are you?",
+    prompt: (draft) => (forSomeoneElse(draft) ? "How old are they?" : "How old are you?"),
     apply: (draft, text) => {
       const age = parseAge(text);
       if (age == null) return { ok: false, retry: "I need an age between 18 and 100. What should I put down?" };
@@ -61,7 +109,7 @@ export const STEPS: Step[] = [
     key: "application.marital_status",
     target: { table: "application", column: "marital_status" },
     severity: "warn",
-    prompt: () => "And your marital status?",
+    prompt: (draft) => (forSomeoneElse(draft) ? "And their marital status?" : "And your marital status?"),
     suggestions: () => ["Single", "Married", "Divorced", "Widowed"],
     apply: (draft, text) => {
       const maritalStatus = parseMaritalStatus(text);
@@ -73,7 +121,7 @@ export const STEPS: Step[] = [
     key: "application.smoker",
     target: { table: "application", column: "smoker" },
     severity: "warn",
-    prompt: () => "Do you smoke?",
+    prompt: (draft) => (forSomeoneElse(draft) ? "Do they smoke?" : "Do you smoke?"),
     suggestions: () => ["No", "Yes"],
     apply: (draft, text) => {
       if (isAffirmative(text)) return ok({ ...draft, smoker: true }, "true");
@@ -85,7 +133,7 @@ export const STEPS: Step[] = [
     key: "application.emirate",
     target: { table: "application", column: "emirate" },
     severity: "warn",
-    prompt: () => "Which emirate do you live in?",
+    prompt: (draft) => (forSomeoneElse(draft) ? "Which emirate do they live in?" : "Which emirate do you live in?"),
     suggestions: () => ["Dubai", "Abu Dhabi", "Sharjah"],
     apply: (draft, text) => ok({ ...draft, emirate: text.trim() }, text.trim()),
   },
@@ -107,8 +155,10 @@ export const STEPS: Step[] = [
     key: "condition.raw_text",
     target: { table: "application_condition", column: "raw_text" },
     severity: "block",
-    prompt: () =>
-      "Any health conditions we should know about — anything ongoing, or that you take medication for? If there are none, just say no.",
+    prompt: (draft) =>
+      forSomeoneElse(draft)
+        ? "Any health conditions we should know about for them — anything ongoing, or medication they take? If there are none, just say no."
+        : "Any health conditions we should know about — anything ongoing, or that you take medication for? If there are none, just say no.",
     suggestions: () => ["None", "Type 2 diabetes, managed", "High blood pressure"],
     apply: (draft, text) => {
       if (saysNothing(text)) return ok({ ...draft, conditions: [] }, "none declared");
@@ -198,7 +248,10 @@ export const STEPS: Step[] = [
     key: "application.treatment_outside_uae_expected",
     target: { table: "application", column: "treatment_outside_uae_expected" },
     severity: "warn",
-    prompt: () => "Last couple of things. Do you expect to get any treatment outside the UAE?",
+    prompt: (draft) =>
+      forSomeoneElse(draft)
+        ? "Last couple of things. Do they expect to get any treatment outside the UAE?"
+        : "Last couple of things. Do you expect to get any treatment outside the UAE?",
     suggestions: () => ["No", "Yes, sometimes"],
     apply: (draft, text) => {
       if (isAffirmative(text)) return ok({ ...draft, treatmentOutsideUaeExpected: true }, "true");
@@ -269,7 +322,12 @@ export function summarise(draft: IntakeDraft): string {
     draft.emirate ? `living in ${draft.emirate}` : null,
   ].filter(Boolean);
 
-  const parts = [`Here's what I have: ${lines.join(", ")}.`];
+  const parts = [
+    forSomeoneElse(draft)
+      ? `This one's for ${draft.subjectFullName ?? "them"} (your ${draft.subjectRelationship}).`
+      : null,
+    `Here's what I have: ${lines.join(", ")}.`,
+  ].filter(Boolean);
   parts.push(
     draft.conditions.length > 0
       ? `Conditions: ${draft.conditions.map((c) => `${c.rawText} (${c.stability})`).join(", ")}.`

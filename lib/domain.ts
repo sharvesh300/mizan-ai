@@ -7,6 +7,7 @@
 
 import type {
   ApplicationStatus,
+  ConversationStatus,
   EventKind,
   EventOutcome,
   FlagSeverity,
@@ -119,6 +120,30 @@ export const applicationStatusHint: Record<ApplicationStatus, string> = {
   withdrawn: "This application was withdrawn.",
   declined: "We could not offer cover on this application.",
   expired: "This application expired before it was completed.",
+};
+
+// ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+export const conversationStatusLabel: Record<ConversationStatus, string> = {
+  active: "In progress",
+  awaiting_user: "Waiting on you",
+  awaiting_review: "With an advisor",
+  escalated: "Escalated",
+  completed: "Sent to an advisor",
+  abandoned: "Abandoned",
+  expired: "Expired",
+};
+
+export const conversationStatusTone: Record<ConversationStatus, Tone> = {
+  active: "info",
+  awaiting_user: "warning",
+  awaiting_review: "info",
+  escalated: "warning",
+  completed: "success",
+  abandoned: "neutral",
+  expired: "neutral",
 };
 
 // ---------------------------------------------------------------------------

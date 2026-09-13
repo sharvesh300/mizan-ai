@@ -30,9 +30,14 @@ import {
   type IntakeSource,
   type MaritalStatus,
   type PriorityTag,
+  type RelationshipType,
 } from "@/db/schema";
 
 export type IntakeDraft = {
+  /** Who the cover is for. Null until the applicant has said. */
+  subjectRelationship: RelationshipType | null;
+  /** Only meaningful (and only asked for) when `subjectRelationship` is not "self". */
+  subjectFullName: string | null;
   age: number | null;
   maritalStatus: MaritalStatus | null;
   smoker: boolean | null;
@@ -46,6 +51,8 @@ export type IntakeDraft = {
 };
 
 export const emptyDraft = (): IntakeDraft => ({
+  subjectRelationship: null,
+  subjectFullName: null,
   age: null,
   maritalStatus: null,
   smoker: null,
@@ -150,6 +157,17 @@ export function parseMaritalStatus(text: string): MaritalStatus | null {
   return null;
 }
 
+/** "myself"/"my spouse"/"my child"/"my parent"/"someone else". Null when unsaid. */
+export function parseRelationship(text: string): RelationshipType | null {
+  const t = text.trim().toLowerCase();
+  if (/\b(myself|me|i am|i'm|it'?s for me|self|individual|personal|applicant|primary|my own|for me|for myself|just me)\b/.test(t)) return "self";
+  if (/\b(spouse|wife|husband|partner)\b/.test(t)) return "spouse";
+  if (/\b(child|children|son|daughter|kid|kids|baby|dependant|dependent)\b/.test(t)) return "child";
+  if (/\b(parent|parents|mother|father|mom|dad)\b/.test(t)) return "parent";
+  if (/\b(someone else|other|friend|relative)\b/.test(t)) return "other";
+  return null;
+}
+
 export function parseAge(text: string): number | null {
   const match = text.match(/\d{1,3}/);
   if (!match) return null;
@@ -163,20 +181,44 @@ export function parseAge(text: string): number | null {
 
 const reference = () => `APP-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 
-/** Reuse the user's own `self` person if it exists; a person is not a login. */
-async function resolveSelfPerson(userId: string, fullName: string) {
+/**
+ * Resolve the subject of this application to a `person` row.
+ *
+ * "self" always maps to the applicant's own person regardless of what name is
+ * on file — that identity does not change between applications. Anyone else
+ * (spouse, child, parent, other) is matched by relationship + name so a second
+ * application for the same dependant reuses their record instead of forking
+ * it, and a genuinely new name creates one. A person is not a login.
+ */
+async function resolvePerson(
+  userId: string,
+  ownFullName: string,
+  relationship: RelationshipType,
+  subjectFullName: string | null,
+) {
   const existing = await db
     .select()
     .from(person)
     .where(eq(person.ownerUserId, userId))
     .orderBy(asc(person.createdAt));
-  const self = existing.find((p) => p.relationshipToOwner === "self");
-  if (self) return self;
 
-  const [created] = await db
-    .insert(person)
-    .values({ ownerUserId: userId, relationshipToOwner: "self", fullName })
-    .returning();
+  if (relationship === "self") {
+    const self = existing.find((p) => p.relationshipToOwner === "self");
+    if (self) return self;
+    const [created] = await db
+      .insert(person)
+      .values({ ownerUserId: userId, relationshipToOwner: "self", fullName: ownFullName })
+      .returning();
+    return created;
+  }
+
+  const fullName = (subjectFullName ?? "").trim();
+  const match = existing.find(
+    (p) => p.relationshipToOwner === relationship && p.fullName.toLowerCase() === fullName.toLowerCase(),
+  );
+  if (match) return match;
+
+  const [created] = await db.insert(person).values({ ownerUserId: userId, relationshipToOwner: relationship, fullName }).returning();
   return created;
 }
 
@@ -193,8 +235,12 @@ export async function createApplication(
   if (draft.age == null || draft.budget == null) {
     throw new Error("Age and budget are required to submit an application.");
   }
+  const relationship = draft.subjectRelationship ?? "self";
+  if (relationship !== "self" && !draft.subjectFullName?.trim()) {
+    throw new Error("The full name of the person this application is for is required.");
+  }
 
-  const subject = await resolveSelfPerson(user.id, user.fullName);
+  const subject = await resolvePerson(user.id, user.fullName, relationship, draft.subjectFullName);
   const inception = draft.policyInception ?? defaultInception();
   const applicationId = crypto.randomUUID();
   const now = new Date();

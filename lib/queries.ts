@@ -3,7 +3,7 @@
 // (cohort, flags, reviewer decisions, confidence), and the broker helpers
 // return the whole record.
 
-import { asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   application,
@@ -16,6 +16,8 @@ import {
   assessment,
   assessmentFlag,
   benefitLedger,
+  conversation,
+  message,
   person,
   plan,
   planFitReassessment,
@@ -113,6 +115,52 @@ export async function getDeclared(applicationId: string) {
       .orderBy(asc(applicationStatusHistory.changedAt)),
   ]);
   return { conditions, needs, priorities, providers, history };
+}
+
+// ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+/**
+ * Every intake conversation this user has started, most recent first, with a
+ * one-line preview of the last message. Drives the chat history list, so
+ * "start a new chat" and "pick up an old one" are both real choices instead
+ * of the app silently deciding for the applicant.
+ */
+export async function listIntakeConversations(userId: string) {
+  const conversations = await db
+    .select({
+      id: conversation.id,
+      status: conversation.status,
+      startedAt: conversation.startedAt,
+      applicationId: conversation.applicationId,
+      personName: person.fullName,
+      relationship: person.relationshipToOwner,
+      reference: application.reference,
+    })
+    .from(conversation)
+    .leftJoin(application, eq(conversation.applicationId, application.id))
+    .leftJoin(person, eq(application.personId, person.id))
+    .where(and(eq(conversation.userId, userId), eq(conversation.purpose, "intake")))
+    .orderBy(desc(conversation.startedAt));
+
+  if (conversations.length === 0) return [];
+
+  const messages = await db
+    .select({ conversationId: message.conversationId, bodyText: message.bodyText })
+    .from(message)
+    .where(inArray(message.conversationId, conversations.map((c) => c.id)))
+    .orderBy(desc(message.seq));
+
+  // First hit per conversation is the latest, since `messages` is seq-desc.
+  const previewByConversation = new Map<string, string>();
+  for (const m of messages) {
+    if (m.bodyText && !previewByConversation.has(m.conversationId)) {
+      previewByConversation.set(m.conversationId, m.bodyText);
+    }
+  }
+
+  return conversations.map((c) => ({ ...c, preview: previewByConversation.get(c.id) ?? null }));
 }
 
 /** All three plans priced for this application, best-ranked first. */
