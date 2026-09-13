@@ -1,69 +1,114 @@
-import Image from "next/image";
+import { desc, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { application, person, reviewTask } from "@/db/schema";
+import { getCurrentUser } from "@/lib/session";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+export default async function Home() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return (
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
+        <p className="text-zinc-600 dark:text-zinc-400">
+          No users found. Seed the database with <code>bun db:seed</code>.
+        </p>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
+      <div className="mb-8 flex items-center gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">{user.fullName}</h1>
+        <span className="rounded-full bg-black/[.06] px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-zinc-700 dark:bg-white/[.08] dark:text-zinc-300">
+          {user.role}
+        </span>
+      </div>
+
+      {user.role === "advisor" ? (
+        <AdvisorQueue userId={user.id} />
+      ) : (
+        <ApplicantApplications userId={user.id} />
+      )}
+    </main>
+  );
+}
+
+async function ApplicantApplications({ userId }: { userId: string }) {
+  const rows = await db
+    .select({
+      reference: application.reference,
+      status: application.status,
+      personName: person.fullName,
+      relationship: person.relationshipToOwner,
+    })
+    .from(application)
+    .innerJoin(person, eq(application.personId, person.id))
+    .where(eq(person.ownerUserId, userId))
+    .orderBy(desc(application.createdAt));
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+        My applications ({rows.length})
+      </h2>
+      {rows.length === 0 ? (
+        <p className="text-zinc-600 dark:text-zinc-400">No applications yet.</p>
+      ) : (
+        <ul className="divide-y divide-black/10 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
+          {rows.map((row) => (
+            <li key={row.reference} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="font-medium">{row.reference}</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  {row.personName} · {row.relationship}
+                </p>
+              </div>
+              <span className="text-sm font-medium">{row.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+async function AdvisorQueue({ userId }: { userId: string }) {
+  const rows = await db
+    .select({
+      id: reviewTask.id,
+      subjectType: reviewTask.subjectType,
+      reason: reviewTask.reason,
+      status: reviewTask.status,
+      priorityScore: reviewTask.priorityScore,
+    })
+    .from(reviewTask)
+    .where(eq(reviewTask.assignedToUserId, userId))
+    .orderBy(desc(reviewTask.priorityScore));
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+        My review queue ({rows.length})
+      </h2>
+      {rows.length === 0 ? (
+        <p className="text-zinc-600 dark:text-zinc-400">Nothing assigned.</p>
+      ) : (
+        <ul className="divide-y divide-black/10 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="font-medium">{row.reason}</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{row.subjectType}</p>
+              </div>
+              <div className="text-right text-sm">
+                <p className="font-medium">{row.status}</p>
+                <p className="text-zinc-500 dark:text-zinc-400">priority {row.priorityScore}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

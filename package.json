@@ -14,6 +14,7 @@
     "db:seed": "bun run db/seed/run.ts"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "next": "16.3.5",
     "react": "19.2.8",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/bun": "^1.4.2",
     "@types/node": "^20",
     "@types/react": "^19",
