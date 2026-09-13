@@ -1,51 +1,90 @@
 "use client";
 
+import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
 import { useTransition } from "react";
 import { switchUser } from "@/app/actions";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { SessionUser } from "@/lib/session";
 
 type SwitcherUser = Pick<SessionUser, "id" | "fullName" | "role">;
 
-export function UserSwitcher({
-  users,
-  currentUserId,
-}: {
-  users: SwitcherUser[];
-  currentUserId: string;
-}) {
-  const [pending, startTransition] = useTransition();
+const initials = (name: string) =>
+  name
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 
-  const applicants = users.filter((user) => user.role === "applicant");
-  const advisors = users.filter((user) => user.role === "advisor");
+/**
+ * Stands in for signing in. The brief asks for a view toggle rather than real
+ * accounts, so this writes an app_user id to a cookie and re-renders.
+ */
+export function UserSwitcher({ users, currentUserId }: { users: SwitcherUser[]; currentUserId: string }) {
+  const [pending, startTransition] = useTransition();
+  const current = users.find((u) => u.id === currentUserId);
+
+  const groups = [
+    { label: "Applicants", items: users.filter((u) => u.role === "applicant") },
+    { label: "Advisors", items: users.filter((u) => u.role === "advisor") },
+  ];
 
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <span className="text-zinc-500 dark:text-zinc-400">Acting as</span>
-      <select
-        aria-label="Active user"
-        value={currentUserId}
-        disabled={pending}
-        onChange={(event) => {
-          const userId = event.target.value;
-          startTransition(() => switchUser(userId));
-        }}
-        className="rounded-md border border-black/10 bg-white px-2 py-1 font-medium text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:bg-zinc-900 dark:text-zinc-50"
-      >
-        <optgroup label="Applicants">
-          {applicants.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.fullName}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label="Advisors">
-          {advisors.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.fullName}
-            </option>
-          ))}
-        </optgroup>
-      </select>
-    </label>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            disabled={pending}
+            className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
+          >
+            <Avatar className="size-7 rounded-lg">
+              <AvatarFallback className="rounded-lg text-xs">
+                {current ? initials(current.fullName) : "?"}
+              </AvatarFallback>
+            </Avatar>
+            <span className="grid min-w-0 flex-1 leading-tight">
+              <span className="truncate text-sm font-medium">{current?.fullName ?? "Select user"}</span>
+              <span className="truncate text-xs font-normal text-muted-foreground capitalize">
+                {current?.role}
+              </span>
+            </span>
+            <ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start" side="top" className="w-(--anchor-width) min-w-56">
+        {groups.map((group, index) => (
+          <DropdownMenuGroup key={group.label}>
+            {index > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+            {group.items.map((user) => (
+              <DropdownMenuItem
+                key={user.id}
+                onClick={() => startTransition(() => switchUser(user.id))}
+              >
+                <Avatar className="size-6 rounded-md">
+                  <AvatarFallback className="rounded-md text-[0.6rem]">
+                    {initials(user.fullName)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="flex-1 truncate">{user.fullName}</span>
+                {user.id === currentUserId ? <CheckIcon className="size-4" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
