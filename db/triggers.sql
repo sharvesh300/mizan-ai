@@ -17,3 +17,13 @@ before delete on servicing_event
 begin
   select raise(abort, 'servicing_event is append-only');
 end;
+
+-- Append-only guard for `message` (v2 AI/conversation layer) — delete only.
+-- Postgres's `message_no_mutate` trigger fires `BEFORE DELETE` only, not
+-- `BEFORE UPDATE`: `redacted` is a legitimate in-place flag on an existing
+-- row, so updates stay allowed.
+create trigger if not exists message_no_delete
+before delete on message
+begin
+  select raise(abort, 'message is append-only');
+end;

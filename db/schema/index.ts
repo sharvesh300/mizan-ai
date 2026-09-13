@@ -11,3 +11,12 @@ export * from "./review";
 export * from "./policy-ledger";
 export * from "./plan-fit";
 export * from "./views";
+
+// v2 · AI & conversation layer (additive)
+export * from "./channels";
+export * from "./conversation";
+export * from "./questions";
+export * from "./ai-decision";
+export * from "./actions";
+export * from "./extraction";
+export * from "./ai-views";

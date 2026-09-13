@@ -1,7 +1,9 @@
 // Mirrors the Postgres `create type ... as enum (...)` declarations in the
 // fwdhelm baseline schema. SQLite has no native enum type, so each tuple is
 // consumed by `text(column, { enum: [...] })`, which gives the same
-// compile-time union type and generates a `CHECK (col IN (...))` constraint.
+// compile-time union type. It is TS-only — unlike Postgres, SQLite/drizzle
+// does not enforce membership at the database level, so invalid values
+// written outside the TS layer (raw SQL, another client) are not rejected.
 
 export const userRoleEnum = ["applicant", "advisor"] as const;
 export type UserRole = (typeof userRoleEnum)[number];
@@ -121,3 +123,75 @@ export type ReasonCode = (typeof reasonCodeEnum)[number];
 
 export const fitVerdictEnum = ["confirm", "recommend_change"] as const;
 export type FitVerdict = (typeof fitVerdictEnum)[number];
+
+// =====================================================================
+// v2 · AI & CONVERSATION LAYER — additive, see db/schema/{channels,
+// conversation,questions,actions,ai-decision,extraction,ai-views}.ts
+// =====================================================================
+
+export const channelEnum = ["web_chat", "whatsapp", "voice", "sms", "email", "advisor_console"] as const;
+export type Channel = (typeof channelEnum)[number];
+
+export const conversationPurposeEnum = ["intake", "servicing", "support", "notification"] as const;
+export type ConversationPurpose = (typeof conversationPurposeEnum)[number];
+
+export const conversationStatusEnum = [
+  "active",
+  "awaiting_user",
+  "awaiting_review",
+  "escalated",
+  "completed",
+  "abandoned",
+  "expired",
+] as const;
+export type ConversationStatus = (typeof conversationStatusEnum)[number];
+
+export const messageDirectionEnum = ["inbound", "outbound"] as const;
+export type MessageDirection = (typeof messageDirectionEnum)[number];
+
+export const messageRoleEnum = ["applicant", "assistant", "advisor", "system"] as const;
+export type MessageRole = (typeof messageRoleEnum)[number];
+
+export const messageTypeEnum = ["text", "template", "interactive", "media", "location", "system_event"] as const;
+export type MessageType = (typeof messageTypeEnum)[number];
+
+export const deliveryStatusEnum = ["pending", "sent", "delivered", "read", "failed", "received"] as const;
+export type DeliveryStatus = (typeof deliveryStatusEnum)[number];
+
+export const questionStatusEnum = ["asked", "answered", "declined", "skipped", "superseded", "expired"] as const;
+export type QuestionStatus = (typeof questionStatusEnum)[number];
+
+export const actionStatusEnum = ["pending", "succeeded", "failed", "rejected"] as const;
+export type ActionStatus = (typeof actionStatusEnum)[number];
+
+export const extractionMethodEnum = ["stated", "normalised", "inferred"] as const;
+export type ExtractionMethod = (typeof extractionMethodEnum)[number];
+
+export const modelRunStatusEnum = ["ok", "error", "timeout", "filtered"] as const;
+export type ModelRunStatus = (typeof modelRunStatusEnum)[number];
+
+export const aiDecisionTypeEnum = [
+  "intake_extraction",
+  "field_normalisation",
+  "question_selection",
+  "cohort_classification",
+  "flag_evaluation",
+  "plan_recommendation",
+  "benefit_classification",
+  "evidence_classification",
+  "appeal_assessment",
+  "fit_reassessment",
+  "explanation_generation",
+  "routing",
+] as const;
+export type AiDecisionType = (typeof aiDecisionTypeEnum)[number];
+
+export const aiDecisionStatusEnum = [
+  "proposed",
+  "auto_accepted",
+  "accepted",
+  "edited",
+  "rejected",
+  "superseded",
+] as const;
+export type AiDecisionStatus = (typeof aiDecisionStatusEnum)[number];

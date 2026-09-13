@@ -1,0 +1,1501 @@
+{
+  "_note": "Mock seed for db/schema.sql. Plan rows are the supplied hackathon_data.json plans, field-for-field. Everything else is invented for the build.",
+  "app_user": [
+    {
+      "id": "697e49fb-b35c-554a-9ee4-90913bb5c71e",
+      "role": "applicant",
+      "full_name": "Aisha Rahman",
+      "email": "aisha.rahman@example.ae",
+      "phone": "+971501110001"
+    },
+    {
+      "id": "1dd4cca4-ada4-5366-95a7-23afa915a0a0",
+      "role": "applicant",
+      "full_name": "Omar Haddad",
+      "email": "omar.haddad@example.ae",
+      "phone": "+971501110002"
+    },
+    {
+      "id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04",
+      "role": "applicant",
+      "full_name": "Meera Nair",
+      "email": "meera.nair@example.ae",
+      "phone": "+971501110003"
+    },
+    {
+      "id": "13b58e77-9633-56f5-bb23-8a914a822fb0",
+      "role": "applicant",
+      "full_name": "Daniel Fischer",
+      "email": "daniel.fischer@example.ae",
+      "phone": "+971501110004"
+    },
+    {
+      "id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "role": "advisor",
+      "full_name": "Leila Mansour",
+      "email": "leila.mansour@fwdhelm.ae",
+      "phone": "+971501119001"
+    },
+    {
+      "id": "4c9300df-ec3f-5692-9607-0f2d57febaa1",
+      "role": "advisor",
+      "full_name": "Karim Youssef",
+      "email": "karim.youssef@fwdhelm.ae",
+      "phone": "+971501119002"
+    }
+  ],
+  "person": [
+    {
+      "id": "2bc872cd-d6d0-54ec-a480-93623e711876",
+      "external_ref": "P1",
+      "owner_user_id": "697e49fb-b35c-554a-9ee4-90913bb5c71e",
+      "relationship_to_owner": "self",
+      "full_name": "Aisha Rahman",
+      "date_of_birth": "1999-09-10",
+      "marital_status": "single",
+      "smoker": false,
+      "emirate": "Dubai"
+    },
+    {
+      "id": "3e9b31e8-728d-5447-a62c-295df31c1d4f",
+      "external_ref": "P2",
+      "owner_user_id": "1dd4cca4-ada4-5366-95a7-23afa915a0a0",
+      "relationship_to_owner": "self",
+      "full_name": "Omar Haddad",
+      "date_of_birth": "1994-09-11",
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Dubai"
+    },
+    {
+      "id": "59939c18-3a9f-575c-ab30-747638c3a067",
+      "external_ref": "P3",
+      "owner_user_id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04",
+      "relationship_to_owner": "self",
+      "full_name": "Meera Nair",
+      "date_of_birth": "1967-09-18",
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Sharjah"
+    },
+    {
+      "id": "3349d7c7-44ca-576c-b31a-e32d15b8469d",
+      "external_ref": "P4",
+      "owner_user_id": "13b58e77-9633-56f5-bb23-8a914a822fb0",
+      "relationship_to_owner": "self",
+      "full_name": "Daniel Fischer",
+      "date_of_birth": "1985-09-13",
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Abu Dhabi"
+    },
+    {
+      "id": "66efa91c-181e-5d1e-8c94-838cfc22d091",
+      "external_ref": "P5",
+      "owner_user_id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04",
+      "relationship_to_owner": "parent",
+      "full_name": "Suresh Nair",
+      "date_of_birth": "1962-09-19",
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Sharjah"
+    }
+  ],
+  "application": [
+    {
+      "id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "reference": "APP-P1",
+      "person_id": "2bc872cd-d6d0-54ec-a480-93623e711876",
+      "created_by_user_id": "697e49fb-b35c-554a-9ee4-90913bb5c71e",
+      "intake_source": "web_form",
+      "status": "policy_issued",
+      "age": 26,
+      "marital_status": "single",
+      "smoker": false,
+      "emirate": "Dubai",
+      "budget": "low",
+      "policy_inception": "2026-01-01",
+      "treatment_outside_uae_expected": false,
+      "submitted_at": "2025-12-01T09:00:00Z",
+      "confirmed_at": "2025-12-01T09:12:00Z",
+      "status_changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "d73942e2-c163-517e-8137-77426734563e",
+      "reference": "APP-P2",
+      "person_id": "3e9b31e8-728d-5447-a62c-295df31c1d4f",
+      "created_by_user_id": "1dd4cca4-ada4-5366-95a7-23afa915a0a0",
+      "intake_source": "chat",
+      "status": "policy_issued",
+      "age": 31,
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Dubai",
+      "budget": "moderate",
+      "policy_inception": "2026-01-01",
+      "treatment_outside_uae_expected": false,
+      "submitted_at": "2025-12-01T09:00:00Z",
+      "confirmed_at": "2025-12-01T09:12:00Z",
+      "status_changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "reference": "APP-P3",
+      "person_id": "59939c18-3a9f-575c-ab30-747638c3a067",
+      "created_by_user_id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04",
+      "intake_source": "web_form",
+      "status": "policy_issued",
+      "age": 58,
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Sharjah",
+      "budget": "moderate",
+      "policy_inception": "2026-01-01",
+      "treatment_outside_uae_expected": false,
+      "submitted_at": "2025-12-01T09:00:00Z",
+      "confirmed_at": "2025-12-01T09:12:00Z",
+      "status_changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "reference": "APP-P4",
+      "person_id": "3349d7c7-44ca-576c-b31a-e32d15b8469d",
+      "created_by_user_id": "13b58e77-9633-56f5-bb23-8a914a822fb0",
+      "intake_source": "web_form",
+      "status": "policy_issued",
+      "age": 40,
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Abu Dhabi",
+      "budget": "comfortable",
+      "policy_inception": "2026-01-01",
+      "treatment_outside_uae_expected": true,
+      "submitted_at": "2025-12-01T09:00:00Z",
+      "confirmed_at": "2025-12-01T09:12:00Z",
+      "status_changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "reference": "APP-P5",
+      "person_id": "66efa91c-181e-5d1e-8c94-838cfc22d091",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "intake_source": "advisor_manual",
+      "status": "policy_issued",
+      "age": 63,
+      "marital_status": "married",
+      "smoker": false,
+      "emirate": "Sharjah",
+      "budget": "not_a_concern",
+      "policy_inception": "2026-01-01",
+      "treatment_outside_uae_expected": false,
+      "submitted_at": "2025-12-01T09:00:00Z",
+      "confirmed_at": "2025-12-01T09:12:00Z",
+      "status_changed_at": "2025-12-01T09:25:00Z"
+    }
+  ],
+  "application_status_history": [
+    {
+      "id": "6f235b97-3bde-5854-9727-648490992f25",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "draft",
+      "to_status": "in_intake",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T08:40:00Z"
+    },
+    {
+      "id": "db4c2fea-dec3-52ca-9780-f501863d9483",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "in_intake",
+      "to_status": "submitted",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:00:00Z"
+    },
+    {
+      "id": "beefa50b-3a71-5f47-ba9c-9bffddb0e952",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "submitted",
+      "to_status": "confirmed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:12:00Z"
+    },
+    {
+      "id": "ba17b690-734d-5232-8397-75c316e9147a",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "confirmed",
+      "to_status": "assessed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "3df87b74-6278-5fac-a233-f7cfb7ccb070",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "assessed",
+      "to_status": "quoted",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "0c9d3044-f223-5ea5-84e8-84c9ffdcd0a5",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "quoted",
+      "to_status": "recommended",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:00Z"
+    },
+    {
+      "id": "a337e20d-4167-5b22-88dd-d4b1a794e969",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "recommended",
+      "to_status": "in_review",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:30Z"
+    },
+    {
+      "id": "686ec0cc-fd4b-5896-ad9d-b44db0ec0f56",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "in_review",
+      "to_status": "approved",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "15cc6679-940a-5b9a-b6bf-7946cc2cac28",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "from_status": "approved",
+      "to_status": "policy_issued",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "cb68f37b-8c47-5480-8e6b-591afea2ccf3",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "draft",
+      "to_status": "in_intake",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T08:40:00Z"
+    },
+    {
+      "id": "9944161e-39b9-5cc0-8712-69d69c8fd543",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "in_intake",
+      "to_status": "submitted",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:00:00Z"
+    },
+    {
+      "id": "c7abc4cb-c690-5f09-a205-a909625b0e4b",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "submitted",
+      "to_status": "confirmed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:12:00Z"
+    },
+    {
+      "id": "5fc5bbaf-c520-576a-8df4-9c91195b9691",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "confirmed",
+      "to_status": "assessed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "cd61c510-566d-5361-b234-003260c5ba08",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "assessed",
+      "to_status": "quoted",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "37b9db90-ce37-5028-994c-732a3cc9f408",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "quoted",
+      "to_status": "recommended",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:00Z"
+    },
+    {
+      "id": "b73de36c-a7d5-548d-9064-82b2718eb483",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "recommended",
+      "to_status": "in_review",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:30Z"
+    },
+    {
+      "id": "55bdaade-64fd-53e5-be8e-b0112b3469dd",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "in_review",
+      "to_status": "approved",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "1e6e0d5c-ffd5-544e-95ee-3a01cf0f92eb",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "from_status": "approved",
+      "to_status": "policy_issued",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "1f9784de-2f15-57d1-8cce-a1845c2538e9",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "draft",
+      "to_status": "in_intake",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T08:40:00Z"
+    },
+    {
+      "id": "ec95ea66-a372-5dc4-8595-3498a8fd2dd0",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "in_intake",
+      "to_status": "submitted",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:00:00Z"
+    },
+    {
+      "id": "c37c4d6b-a112-597d-9aba-98348ebe7d67",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "submitted",
+      "to_status": "confirmed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:12:00Z"
+    },
+    {
+      "id": "d6a8251e-4aee-557b-b520-e3b523e637eb",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "confirmed",
+      "to_status": "assessed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "884792ec-2c3d-5454-8268-bb40ff9dab76",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "assessed",
+      "to_status": "quoted",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "12f0666c-92a8-5a86-9555-e074614eec3f",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "quoted",
+      "to_status": "recommended",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:00Z"
+    },
+    {
+      "id": "719797df-839d-5168-9016-7ca7dadfcffb",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "recommended",
+      "to_status": "in_review",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:30Z"
+    },
+    {
+      "id": "896148cd-e6f6-57d8-b8a1-98475ba62124",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "in_review",
+      "to_status": "approved",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "e0b20006-5d62-5835-90c7-7e0ea5afea42",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "from_status": "approved",
+      "to_status": "policy_issued",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "858066e3-b447-59f1-8e59-dcb75c53b99a",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "draft",
+      "to_status": "in_intake",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T08:40:00Z"
+    },
+    {
+      "id": "a103c8a3-5d7f-597a-aa42-66e0c57bc1c3",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "in_intake",
+      "to_status": "submitted",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:00:00Z"
+    },
+    {
+      "id": "60a1b266-199d-5633-ab08-6472ba55f976",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "submitted",
+      "to_status": "confirmed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:12:00Z"
+    },
+    {
+      "id": "d2241f89-d31a-5245-9e83-492fab3d9f65",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "confirmed",
+      "to_status": "assessed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "08b55c65-7d15-55b9-8b59-906937884538",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "assessed",
+      "to_status": "quoted",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "1723642f-1084-54b6-a601-86fe59d6575a",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "quoted",
+      "to_status": "recommended",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:00Z"
+    },
+    {
+      "id": "8acb3c7d-4e53-5303-a98b-aff2fda2d42a",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "recommended",
+      "to_status": "in_review",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:30Z"
+    },
+    {
+      "id": "bf03aa5c-47ab-5219-aa02-555177757453",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "in_review",
+      "to_status": "approved",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "9332d16b-1751-5597-9dc9-e80775f458ef",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "from_status": "approved",
+      "to_status": "policy_issued",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:25:00Z"
+    },
+    {
+      "id": "f822cfbe-be51-508e-b69c-3a58798618f3",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "draft",
+      "to_status": "in_intake",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T08:40:00Z"
+    },
+    {
+      "id": "28e04d23-8646-521f-bbd1-b051eb16054d",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "in_intake",
+      "to_status": "submitted",
+      "changed_by": "applicant",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:00:00Z"
+    },
+    {
+      "id": "6d041e66-d0fe-54f6-84bb-879ffc34fdd0",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "submitted",
+      "to_status": "confirmed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:12:00Z"
+    },
+    {
+      "id": "19dc7323-4ae9-5906-9720-878a58d152ba",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "confirmed",
+      "to_status": "assessed",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "e1a1f8fb-adf4-557e-aaec-9cef06afa479",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "assessed",
+      "to_status": "quoted",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "522d2b46-7a88-551b-aa6e-fad8132a80e2",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "quoted",
+      "to_status": "recommended",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:00Z"
+    },
+    {
+      "id": "ee37e6b9-51e2-56be-a2e8-411c41562493",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "recommended",
+      "to_status": "in_review",
+      "changed_by": "system",
+      "changed_by_user_id": null,
+      "reason": null,
+      "changed_at": "2025-12-01T09:18:30Z"
+    },
+    {
+      "id": "c046edde-9f6f-537f-90d9-9d90e97b8861",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "in_review",
+      "to_status": "approved",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "15dc153e-4d65-51ee-a0af-dc3934e119e7",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "from_status": "approved",
+      "to_status": "policy_issued",
+      "changed_by": "advisor",
+      "changed_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "reason": null,
+      "changed_at": "2025-12-01T09:25:00Z"
+    }
+  ],
+  "application_condition": [
+    {
+      "id": "b88523e9-5c34-58f0-93b4-a8d880ee980c",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "type 2 diabetes (managed)",
+      "condition_code": "type_2_diabetes",
+      "stability": "managed",
+      "declared_at_intake": true,
+      "entered_by_user_id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04"
+    },
+    {
+      "id": "8691269a-5d04-5416-ac87-5346b25906b0",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "hypertension (managed)",
+      "condition_code": "hypertension",
+      "stability": "managed",
+      "declared_at_intake": true,
+      "entered_by_user_id": "20a3835e-0955-5e58-88ba-7d8aa78fcf04"
+    },
+    {
+      "id": "89daa18c-4edc-5e08-ad4f-c0edf8e10cc5",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "coronary artery disease (prior stent)",
+      "condition_code": "coronary_artery_disease",
+      "stability": "managed",
+      "declared_at_intake": true,
+      "entered_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e"
+    },
+    {
+      "id": "4768890b-77e7-5e80-bde1-87a7bd22df9c",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "type 2 diabetes",
+      "condition_code": "type_2_diabetes",
+      "stability": "unknown",
+      "declared_at_intake": true,
+      "entered_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e"
+    }
+  ],
+  "application_medication": [
+    {
+      "id": "a2935bad-bff9-5ea0-b1f4-454ebdacf66d",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "metformin 500mg twice daily"
+    },
+    {
+      "id": "ee6eb4a8-37af-510e-88f0-a324c574f8f0",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "amlodipine 5mg daily"
+    },
+    {
+      "id": "df7f4fcb-7c6a-55e7-8cfc-63697856f35b",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "clopidogrel 75mg daily"
+    }
+  ],
+  "application_procedure": [
+    {
+      "id": "d8220b1d-7204-5735-af93-19289ce9317f",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "coronary stent placement",
+      "occurred_on": "2023-04-18"
+    }
+  ],
+  "application_need": [
+    {
+      "id": "10f686d3-c31f-5057-a64a-a9238b8640d9",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "raw_text": "maternity within 12 months",
+      "benefit_class": "maternity",
+      "horizon_months": 12
+    },
+    {
+      "id": "10b3ba58-381d-53b4-8293-20f4dbb87fe6",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "continuous chronic condition management",
+      "benefit_class": "chronic_preexisting",
+      "horizon_months": 0
+    },
+    {
+      "id": "5ffef380-7444-516d-b3c0-e13530abc42a",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "ongoing specialist and cardiac care",
+      "benefit_class": "chronic_preexisting",
+      "horizon_months": 0
+    }
+  ],
+  "application_priority": [
+    {
+      "id": "b8023863-6ad2-5736-b8dd-f4f37bc6ed8b",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "raw_text": "lowest premium",
+      "tag": "premium"
+    },
+    {
+      "id": "0a3acbb4-193b-586c-9cd5-9e5e3794d2cb",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "raw_text": "basic cover acceptable",
+      "tag": "premium"
+    },
+    {
+      "id": "880c3297-25f9-540f-b36a-62a2d69f59c0",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "raw_text": "usable maternity cover this year",
+      "tag": "maternity"
+    },
+    {
+      "id": "c86ff762-617d-59a3-8827-a7736bef2a45",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "raw_text": "sensible cost",
+      "tag": "premium"
+    },
+    {
+      "id": "db8304c2-e2f0-5554-910b-8a28e314b140",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "ongoing coverage for existing conditions",
+      "tag": "chronic_depth"
+    },
+    {
+      "id": "dba3e149-4309-58c1-88c6-1bba2d29945c",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "raw_text": "cost matters",
+      "tag": "premium"
+    },
+    {
+      "id": "fdeb2f5f-4ffb-5210-9d09-cf70720fee36",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "raw_text": "good network access",
+      "tag": "network_access"
+    },
+    {
+      "id": "81aafaf9-39b1-5b02-b9aa-9795ac82a227",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "raw_text": "reasonable outpatient terms",
+      "tag": "outpatient_terms"
+    },
+    {
+      "id": "4967cbe5-bf22-50f4-84ea-c83bd9879e4d",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "comprehensive coverage",
+      "tag": "chronic_depth"
+    },
+    {
+      "id": "1aff8e29-2fa2-5e6f-9994-18b32d6c2ff2",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "raw_text": "wide hospital access",
+      "tag": "network_access"
+    }
+  ],
+  "application_expected_provider": [
+    {
+      "id": "d8012428-e63d-52c2-8df5-38dbadcccd35",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "provider_name": "Cleveland Clinic Abu Dhabi",
+      "tier": "top_tier_private_hospital"
+    },
+    {
+      "id": "86e46c3b-91f9-553a-8038-6c088fe526a5",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "provider_name": "American Hospital Dubai",
+      "tier": "private_hospital"
+    }
+  ],
+  "carrier": [
+    {
+      "id": "car_meridian",
+      "name": "Meridian Health (fictional)"
+    }
+  ],
+  "plan": [
+    {
+      "id": "plan_a",
+      "carrier_id": "car_meridian",
+      "name": "Essential",
+      "annual_premium": 4200,
+      "deductible": 1500,
+      "network": "restricted",
+      "network_note": "Basic clinics and select general hospitals; no premium/private hospitals",
+      "outpatient_copay_pct": 30,
+      "annual_limit": 150000,
+      "dental_optical": "none",
+      "maternity_covered": false,
+      "maternity_waiting_period_months": null,
+      "maternity_limit": null,
+      "chronic_covered": false,
+      "chronic_waiting_period_months": null,
+      "effective_from": "2026-01-01",
+      "effective_to": null
+    },
+    {
+      "id": "plan_b",
+      "carrier_id": "car_meridian",
+      "name": "Balanced",
+      "annual_premium": 8900,
+      "deductible": 500,
+      "network": "standard",
+      "network_note": "Standard clinics and hospitals; excludes top-tier private hospitals",
+      "outpatient_copay_pct": 20,
+      "annual_limit": 500000,
+      "dental_optical": "basic",
+      "maternity_covered": true,
+      "maternity_waiting_period_months": 12,
+      "maternity_limit": 10000,
+      "chronic_covered": true,
+      "chronic_waiting_period_months": 6,
+      "effective_from": "2026-01-01",
+      "effective_to": null
+    },
+    {
+      "id": "plan_c",
+      "carrier_id": "car_meridian",
+      "name": "Comprehensive",
+      "annual_premium": 16500,
+      "deductible": 0,
+      "network": "wide",
+      "network_note": "Wide network including premium and private hospitals",
+      "outpatient_copay_pct": 10,
+      "annual_limit": 1500000,
+      "dental_optical": "full",
+      "maternity_covered": true,
+      "maternity_waiting_period_months": 3,
+      "maternity_limit": 25000,
+      "chronic_covered": true,
+      "chronic_waiting_period_months": 0,
+      "effective_from": "2026-01-01",
+      "effective_to": null
+    }
+  ],
+  "network_admits": [
+    { "network": "restricted", "provider_tier": "in_network_clinic" },
+    { "network": "restricted", "provider_tier": "general_hospital" },
+    { "network": "standard", "provider_tier": "in_network_clinic" },
+    { "network": "standard", "provider_tier": "general_hospital" },
+    { "network": "standard", "provider_tier": "private_hospital" },
+    { "network": "wide", "provider_tier": "in_network_clinic" },
+    { "network": "wide", "provider_tier": "general_hospital" },
+    { "network": "wide", "provider_tier": "private_hospital" },
+    { "network": "wide", "provider_tier": "top_tier_private_hospital" },
+    { "network": "wide", "provider_tier": "premium_private_hospital" }
+  ],
+  "assessment": [
+    {
+      "id": "b8668817-c437-5588-8933-556715423b31",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "cohort": "standard_young_healthy",
+      "confidence": "high",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "f0bf8a50-bc51-5555-a9e7-e9ec9270c83f",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "cohort": "maternity_planning",
+      "confidence": "low",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "95deb543-4572-549c-ae59-b59435305aef",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "cohort": "chronic_managed_mature",
+      "confidence": "medium",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "b745c51e-2ccc-5ab4-8325-50649f7623de",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "cohort": "standard_mid_career",
+      "confidence": "medium",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:15:00Z"
+    },
+    {
+      "id": "fc44ff87-f434-593a-9258-f3f29a5c3227",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "cohort": "chronic_complex_senior",
+      "confidence": "medium",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:15:00Z"
+    }
+  ],
+  "assessment_flag": [
+    {
+      "id": "8609a34c-b7d6-5026-828e-143602478189",
+      "assessment_id": "f0bf8a50-bc51-5555-a9e7-e9ec9270c83f",
+      "rule_code": "need_class_excluded_at_budget",
+      "severity": "review",
+      "fields": ["near_term_needs", "budget"],
+      "reason": "Maternity needed within 12 months. Balanced's 12-month wait does not clear inside the horizon; the only plan that does (Comprehensive, 3-month wait) sits a band above the stated moderate budget."
+    },
+    {
+      "id": "8f4bc0e8-cc38-5e00-ac8c-ebfb21769ecd",
+      "assessment_id": "95deb543-4572-549c-ae59-b59435305aef",
+      "rule_code": "chronic_wait_vs_horizon",
+      "severity": "warn",
+      "fields": ["near_term_needs"],
+      "reason": "Two managed chronic conditions with a 0-month stated horizon against Balanced's 6-month chronic wait. Cover is real but not immediate — confirm the applicant understands the first six months."
+    },
+    {
+      "id": "9d297479-7ffc-5cd7-aea0-ee3481bfc297",
+      "assessment_id": "b745c51e-2ccc-5ab4-8325-50649f7623de",
+      "rule_code": "expected_provider_above_network",
+      "severity": "review",
+      "fields": ["expected_providers"],
+      "reason": "Named provider sits at top_tier_private_hospital; Balanced's standard network does not admit that tier."
+    },
+    {
+      "id": "50ee1e4b-4ac6-5460-b766-fea9df0a0400",
+      "assessment_id": "b745c51e-2ccc-5ab4-8325-50649f7623de",
+      "rule_code": "treatment_outside_uae_expected",
+      "severity": "warn",
+      "fields": ["treatment_outside_uae_expected"],
+      "reason": "Applicant expects some treatment outside the UAE. Geographic scope is undefined in the plan wording — expect insufficient_data at claim time."
+    },
+    {
+      "id": "4f68dd10-eaee-50b0-be31-fee9de4e3413",
+      "assessment_id": "fc44ff87-f434-593a-9258-f3f29a5c3227",
+      "rule_code": "high_expected_utilisation",
+      "severity": "warn",
+      "fields": ["conditions", "prior_procedures"],
+      "reason": "Cardiac history plus diabetes; expected utilisation well above cohort median. Not a decline signal — a depth-of-cover signal."
+    }
+  ],
+  "quote": [
+    {
+      "id": "e81ba2e4-54e8-549e-af97-f5aa6a1d70f7",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "plan_id": "plan_a",
+      "annual_premium": 4200,
+      "eligible": true,
+      "rank": 1,
+      "score": 0.91,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "133ed652-f42b-5e05-b90a-f7f741c29d43",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "plan_id": "plan_b",
+      "annual_premium": 8900,
+      "eligible": true,
+      "rank": 2,
+      "score": 0.54,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "caebf91c-3258-52f8-876f-c3bc617357dc",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "plan_id": "plan_c",
+      "annual_premium": 16500,
+      "eligible": true,
+      "rank": 3,
+      "score": 0.31,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "102bc0ad-a92e-52f9-97f6-3c8aeb0b5e6f",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "plan_id": "plan_c",
+      "annual_premium": 16500,
+      "eligible": true,
+      "rank": 1,
+      "score": 0.88,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "6b4e39fe-e8e1-50d4-8053-4e7aa54c7bfa",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "plan_id": "plan_b",
+      "annual_premium": 8900,
+      "eligible": true,
+      "rank": 2,
+      "score": 0.42,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "479f8c95-7a20-50d7-beb8-fe1717ff63aa",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "plan_id": "plan_a",
+      "annual_premium": 4200,
+      "eligible": false,
+      "rank": 3,
+      "score": 0.05,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "afa60c80-fa49-5399-9e04-ba5d2447df51",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "plan_id": "plan_b",
+      "annual_premium": 8900,
+      "eligible": true,
+      "rank": 1,
+      "score": 0.84,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "4555b3d4-f790-5b8e-acac-d710d7a8fd94",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "plan_id": "plan_c",
+      "annual_premium": 16500,
+      "eligible": true,
+      "rank": 2,
+      "score": 0.71,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "99f712ed-a8fe-594b-b067-6dfa78074803",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "plan_id": "plan_a",
+      "annual_premium": 4200,
+      "eligible": false,
+      "rank": 3,
+      "score": 0.08,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "a7013df2-dc4c-57ed-840c-e5fe5c79ecd5",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "plan_id": "plan_b",
+      "annual_premium": 8900,
+      "eligible": true,
+      "rank": 1,
+      "score": 0.79,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "cd850703-1639-5b90-be87-d57b120551a0",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "plan_id": "plan_c",
+      "annual_premium": 16500,
+      "eligible": true,
+      "rank": 2,
+      "score": 0.68,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "172716fb-1af4-5f13-b199-1dcf56de3703",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "plan_id": "plan_a",
+      "annual_premium": 4200,
+      "eligible": true,
+      "rank": 3,
+      "score": 0.22,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "b0f89ce8-c8d2-561e-afa6-5a68b5be7ec9",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "plan_id": "plan_c",
+      "annual_premium": 16500,
+      "eligible": true,
+      "rank": 1,
+      "score": 0.93,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "5a8be1c6-4571-5023-935e-73a8fbabfc63",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "plan_id": "plan_b",
+      "annual_premium": 8900,
+      "eligible": true,
+      "rank": 2,
+      "score": 0.55,
+      "created_at": "2025-12-01T09:16:00Z"
+    },
+    {
+      "id": "cfdbf114-815e-52b5-bf76-0265a87f4500",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "plan_id": "plan_a",
+      "annual_premium": 4200,
+      "eligible": false,
+      "rank": 3,
+      "score": 0.04,
+      "created_at": "2025-12-01T09:16:00Z"
+    }
+  ],
+  "recommendation": [
+    {
+      "id": "ffdbb6b3-b54f-5dff-b8a5-4200a5bb5a60",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "plan_id": "plan_a",
+      "version": 1,
+      "status": "approved",
+      "broker_reasoning": "Cohort standard_young_healthy, no declared conditions, no near-term needs, budget band low (ceiling 5,000). Essential at 4,200 is the only plan inside the band and nothing in the record needs what Balanced adds. The 1,500 deductible and 30% co-pay are live exposure but sit against an expected-utilisation profile of near zero. Straightforward placement — no reviewer judgment required beyond a sign-off.",
+      "member_reasoning": "Essential fits what you told us: you want the lowest premium and you have no conditions or planned treatment. It costs 4,200 a year. Two things to know — you pay the first 1,500 of any treatment yourself each year, and after that you pay 30% of outpatient bills. Maternity and pre-existing conditions are not covered on this plan.",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "3c6a0cc0-d1b7-57fc-9821-a1c3cdc780a6",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "plan_id": "plan_c",
+      "version": 1,
+      "status": "approved",
+      "broker_reasoning": "Maternity within a 12-month horizon is the binding constraint. Balanced covers maternity but behind a 12-month wait, which does not clear inside the horizon — covered on paper, unusable in practice. Comprehensive's 3-month wait clears with room, and its 25,000 maternity limit against a typical private delivery of ~40,000 leaves a known member share rather than a surprise. Placement is a deliberate one-band budget stretch (16,500 against a moderate ceiling of 10,000); the applicant accepted the trade. Flagged for reviewer because the stretch is the decision, not the arithmetic.",
+      "member_reasoning": "Comprehensive is the only plan on our panel where maternity cover actually starts in time for you. Balanced covers maternity too, but not until you have held the policy for 12 months — that is outside the window you told us about. Comprehensive starts covering it after 3 months. It costs more, at 16,500 a year, and maternity is capped at 25,000, so a private delivery will likely leave part of the bill with you.",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "b150a83a-edf8-58ff-b9dc-4197d227768c",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "plan_id": "plan_b",
+      "version": 1,
+      "status": "approved",
+      "broker_reasoning": "Genuinely arguable between Balanced and Comprehensive — the closest call of the five. Both cover chronic pre-existing; they differ on when (6 months vs 0) and on price (8,900 vs 16,500). Conditions are managed and stable on medication, so the first six months carry routine follow-up cost, not clinical risk. Stated priorities name cost explicitly alongside chronic depth. Balanced wins on 7,600 of annual saving against a bounded six-month gap. Worth a reviewer's eyes: if the applicant cannot self-fund that window, this flips.",
+      "member_reasoning": "Balanced gives you ongoing cover for your diabetes and blood pressure at 8,900 a year. One thing to plan around: cover for conditions you already have starts after 6 months on the policy, so treatment for those two before then is yours to pay. After that you are covered, with a 500 deductible and 20% of outpatient bills. We chose it over the top plan because that one would cost nearly double and the only real difference for you is those first six months.",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "9447eabf-1126-5911-9545-756430690741",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "plan_id": "plan_b",
+      "version": 1,
+      "status": "approved",
+      "broker_reasoning": "No conditions, no near-term needs, comfortable band (ceiling 20,000). Both Balanced and Comprehensive sit inside budget, so this is a network and terms question, not a price one. Balanced's standard network plus 20% outpatient co-pay covers the stated priorities. Two open items: the named provider is top-tier and Balanced's network does not admit that tier, and the applicant expects treatment outside the UAE, which the wording does not define. Neither blocks placement; both belong in front of a reviewer before it is bound.",
+      "member_reasoning": "Balanced fits what you asked for — solid hospital access and reasonable outpatient terms at 8,900 a year, with a 500 deductible and 20% of outpatient bills. One thing to check with us before you decide: the hospital you named is a premium private hospital, which this plan's network does not include. If that hospital matters to you, we should talk about the top plan instead.",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "e4e8df91-39f8-589e-9049-ffbb635adcdd",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "plan_id": "plan_c",
+      "version": 1,
+      "status": "approved",
+      "broker_reasoning": "Cardiac history with a prior stent plus diabetes, ongoing specialist need, budget not a constraint. Comprehensive is the only placement that treats chronic pre-existing with a 0-month wait — the need is continuous and starts at inception, so any wait is a real gap. Wide network admits the premium tier the cardiac care will use, the 1.5M annual limit sits well clear of expected utilisation, and the 0 deductible with 10% co-pay keeps a high-frequency year affordable. Obvious placement; the reasoning is about depth, not price.",
+      "member_reasoning": "Comprehensive is the right fit for your cardiac care and diabetes. Cover for conditions you already have starts immediately — no waiting period — which matters because your care is ongoing rather than something you can postpone. It includes the wide hospital network, so the specialist hospitals you would use are in. There is no deductible, and you pay 10% of outpatient bills.",
+      "created_by": "advisor",
+      "created_by_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "created_at": "2025-12-01T09:20:00Z"
+    }
+  ],
+  "recommendation_rejection": [
+    {
+      "id": "4ab2b5d1-4222-53e4-a23c-c8c92220e32e",
+      "recommendation_id": "ffdbb6b3-b54f-5dff-b8a5-4200a5bb5a60",
+      "plan_id": "plan_b",
+      "reason": "Covers maternity and chronic pre-existing, neither of which is in this record. 4,700 a year more for benefits that would go unused."
+    },
+    {
+      "id": "8f7a015f-9fdd-59cd-a44b-c330e6746295",
+      "recommendation_id": "ffdbb6b3-b54f-5dff-b8a5-4200a5bb5a60",
+      "plan_id": "plan_c",
+      "reason": "Four times the premium for depth this applicant has no stated need for. Outside the low budget band by two bands."
+    },
+    {
+      "id": "de2b3b30-09ef-57c4-88ad-19a05a6d6fad",
+      "recommendation_id": "3c6a0cc0-d1b7-57fc-9821-a1c3cdc780a6",
+      "plan_id": "plan_b",
+      "reason": "Maternity is covered but behind a 12-month waiting period, which does not clear inside the applicant's 12-month horizon. Cheaper, and unusable for the one thing they came for."
+    },
+    {
+      "id": "6a8c30ed-86f4-5a7b-9477-fd6e56d0a222",
+      "recommendation_id": "3c6a0cc0-d1b7-57fc-9821-a1c3cdc780a6",
+      "plan_id": "plan_a",
+      "reason": "Maternity not covered at all. Excluded on benefit, not on price."
+    },
+    {
+      "id": "015a9874-28f8-5351-a978-b6fc60d8e638",
+      "recommendation_id": "b150a83a-edf8-58ff-b9dc-4197d227768c",
+      "plan_id": "plan_c",
+      "reason": "Removes the 6-month chronic wait, which is the only material difference here, at 7,600 a year more. On stable managed conditions that is a poor trade against a stated cost priority."
+    },
+    {
+      "id": "f1ed19c0-ed76-5ec4-b73d-c3dc70033e9b",
+      "recommendation_id": "b150a83a-edf8-58ff-b9dc-4197d227768c",
+      "plan_id": "plan_a",
+      "reason": "Chronic pre-existing not covered at all — excluded on the applicant's primary need."
+    },
+    {
+      "id": "684f5bc2-ce5b-5bd5-a8bb-ec0ca7af665c",
+      "recommendation_id": "9447eabf-1126-5911-9545-756430690741",
+      "plan_id": "plan_c",
+      "reason": "Would admit the named top-tier provider and drop outpatient co-pay to 10%, at 7,600 a year more. Held as the live alternative pending the reviewer's network conversation."
+    },
+    {
+      "id": "70c746b1-e04b-53f6-aa93-920fc2f812b9",
+      "recommendation_id": "9447eabf-1126-5911-9545-756430690741",
+      "plan_id": "plan_a",
+      "reason": "Restricted network and 30% outpatient co-pay contradict both stated priorities."
+    },
+    {
+      "id": "2a2bac42-bab9-536f-96bf-a49f3d771fd3",
+      "recommendation_id": "e4e8df91-39f8-589e-9049-ffbb635adcdd",
+      "plan_id": "plan_b",
+      "reason": "6-month chronic wait against a continuous, already-active need — a six-month gap on the exact care this policy is for. Network also excludes the premium tier."
+    },
+    {
+      "id": "b91137ef-516f-5d57-bdb2-c8f8c6290b9f",
+      "recommendation_id": "e4e8df91-39f8-589e-9049-ffbb635adcdd",
+      "plan_id": "plan_a",
+      "reason": "Chronic pre-existing excluded entirely."
+    }
+  ],
+  "review_task": [
+    {
+      "id": "1fb577db-54ba-56c8-94aa-6ed271ae6b8c",
+      "subject_type": "recommendation",
+      "subject_id": "3c6a0cc0-d1b7-57fc-9821-a1c3cdc780a6",
+      "reason": "Budget stretch: recommended plan is one band above stated budget, driven by a maternity horizon Balanced cannot meet.",
+      "priority_score": 90,
+      "status": "resolved",
+      "assigned_to_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "resolved_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "bde2adf6-da57-5e0d-b854-07b7a46089bf",
+      "subject_type": "recommendation",
+      "subject_id": "b150a83a-edf8-58ff-b9dc-4197d227768c",
+      "reason": "Close call between Balanced and Comprehensive; the 6-month chronic wait is the whole difference.",
+      "priority_score": 70,
+      "status": "resolved",
+      "assigned_to_user_id": "4c9300df-ec3f-5692-9607-0f2d57febaa1",
+      "resolved_at": "2025-12-01T09:22:00Z"
+    },
+    {
+      "id": "a7314d9e-a14f-541b-ac82-04674b16b83f",
+      "subject_type": "application",
+      "subject_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "reason": "Named provider above plan network tier; applicant also expects treatment outside the UAE (undefined in wording).",
+      "priority_score": 60,
+      "status": "open",
+      "assigned_to_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "resolved_at": null
+    }
+  ],
+  "review_decision": [
+    {
+      "id": "e86b5362-88ec-5df9-bfc5-effddbedd714",
+      "review_task_id": "1fb577db-54ba-56c8-94aa-6ed271ae6b8c",
+      "actor_user_id": "b5f961a5-5434-55a2-8405-a319b397d64e",
+      "action": "approve",
+      "notes": "Discussed the premium stretch with the applicant on the call. They confirmed maternity timing outranks cost this year. Approved as recommended.",
+      "payload": null,
+      "decided_at": "2025-12-01T09:20:00Z"
+    },
+    {
+      "id": "f5c2304a-2406-5aff-b03d-9dd59990f974",
+      "review_task_id": "bde2adf6-da57-5e0d-b854-07b7a46089bf",
+      "actor_user_id": "4c9300df-ec3f-5692-9607-0f2d57febaa1",
+      "action": "approve",
+      "notes": "Agree with Balanced. Applicant can self-fund routine follow-up for six months; the saving is real and recurring.",
+      "payload": null,
+      "decided_at": "2025-12-01T09:22:00Z"
+    }
+  ],
+  "policy": [
+    {
+      "id": "980075a5-5db8-59ad-bd53-7d3cd3c48bac",
+      "external_ref": "POL-P1",
+      "application_id": "5e5cee14-37de-57c6-bc6d-6b6cbf3af888",
+      "person_id": "2bc872cd-d6d0-54ec-a480-93623e711876",
+      "plan_id": "plan_a",
+      "recommendation_id": "ffdbb6b3-b54f-5dff-b8a5-4200a5bb5a60",
+      "policy_number": "FWD-2026-P1",
+      "inception_date": "2026-01-01",
+      "status": "active",
+      "annual_premium": 4200
+    },
+    {
+      "id": "2fb93ad4-56a8-590c-97cc-e057d98c84e4",
+      "external_ref": "POL-P2",
+      "application_id": "d73942e2-c163-517e-8137-77426734563e",
+      "person_id": "3e9b31e8-728d-5447-a62c-295df31c1d4f",
+      "plan_id": "plan_c",
+      "recommendation_id": "3c6a0cc0-d1b7-57fc-9821-a1c3cdc780a6",
+      "policy_number": "FWD-2026-P2",
+      "inception_date": "2026-01-01",
+      "status": "active",
+      "annual_premium": 16500
+    },
+    {
+      "id": "21ef3a79-5339-5865-b029-c51fb47c36de",
+      "external_ref": "POL-P3",
+      "application_id": "916bda5c-0734-5881-8b30-bb7c921ee454",
+      "person_id": "59939c18-3a9f-575c-ab30-747638c3a067",
+      "plan_id": "plan_b",
+      "recommendation_id": "b150a83a-edf8-58ff-b9dc-4197d227768c",
+      "policy_number": "FWD-2026-P3",
+      "inception_date": "2026-01-01",
+      "status": "active",
+      "annual_premium": 8900
+    },
+    {
+      "id": "67b31fce-9af0-5df5-a0f2-5e61b292e20b",
+      "external_ref": "POL-P4",
+      "application_id": "2b232cdc-84d2-57d6-aa52-bcde9d96c208",
+      "person_id": "3349d7c7-44ca-576c-b31a-e32d15b8469d",
+      "plan_id": "plan_b",
+      "recommendation_id": "9447eabf-1126-5911-9545-756430690741",
+      "policy_number": "FWD-2026-P4",
+      "inception_date": "2026-01-01",
+      "status": "active",
+      "annual_premium": 8900
+    },
+    {
+      "id": "adc7ca24-3ab6-5501-8556-5b5324caf97d",
+      "external_ref": "POL-P5",
+      "application_id": "e0c25cd9-fa35-5157-a882-fcb660d43c43",
+      "person_id": "66efa91c-181e-5d1e-8c94-838cfc22d091",
+      "plan_id": "plan_c",
+      "recommendation_id": "e4e8df91-39f8-589e-9049-ffbb635adcdd",
+      "policy_number": "FWD-2026-P5",
+      "inception_date": "2026-01-01",
+      "status": "active",
+      "annual_premium": 16500
+    }
+  ],
+  "servicing_event": [
+    {
+      "id": "796d6791-4b19-5cca-973e-04e53a096c43",
+      "external_ref": "CLM-1",
+      "policy_id": "980075a5-5db8-59ad-bd53-7d3cd3c48bac",
+      "kind": "claim",
+      "policy_month": 5,
+      "benefit_class": "general",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 3200,
+      "estimated_amount": null,
+      "description": "Fractured wrist — urgent care, X-ray, casting",
+      "evidence_text": null,
+      "submitted_by_user_id": "697e49fb-b35c-554a-9ee4-90913bb5c71e",
+      "occurred_on": "2026-06-02",
+      "outcome": "covered",
+      "reason_code": "covered",
+      "plan_pays": 1190,
+      "member_pays": 2010,
+      "calculation": [
+        "deductible applied 1500 (remaining was 1500)",
+        "after deductible 1700",
+        "co-pay 30% of 1700 = 510",
+        "plan pays 1190, member pays 1500 + 510 = 2010"
+      ],
+      "ledger_before": {
+        "deductible_met": 0,
+        "annual_paid": 0,
+        "sublimit_used": { "maternity": 0, "dental_optical": 0 }
+      },
+      "ledger_after": {
+        "deductible_met": 1500,
+        "annual_paid": 1190,
+        "sublimit_used": { "maternity": 0, "dental_optical": 0 }
+      },
+      "member_explanation": "Your wrist treatment is covered. This was your first claim of the year, so the 1,500 deductible applied first, then the 30% outpatient share on the rest. The plan paid 1,190 and your share was 2,010. Your deductible is now fully met for 2026 — later claims this year skip that step.",
+      "broker_explanation": "P1 first claim, deductible fully consumed at month 5. Plan paid 1,190 of 3,200. Member share 63% on a first claim is expected on Essential's terms, not a fit signal on its own.",
+      "decided_by": "system",
+      "decided_by_user_id": null,
+      "supersedes_event_id": null,
+      "appeal_of_event_id": null
+    },
+    {
+      "id": "f75010f1-9131-57a9-b5ff-22f7eb8cec55",
+      "external_ref": "CLM-6",
+      "policy_id": "980075a5-5db8-59ad-bd53-7d3cd3c48bac",
+      "kind": "claim",
+      "policy_month": 8,
+      "benefit_class": "general",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 1800,
+      "estimated_amount": null,
+      "description": "Physiotherapy following the wrist fracture",
+      "evidence_text": null,
+      "submitted_by_user_id": "697e49fb-b35c-554a-9ee4-90913bb5c71e",
+      "occurred_on": "2026-09-04",
+      "outcome": "covered",
+      "reason_code": "covered",
+      "plan_pays": 1260,
+      "member_pays": 540,
+      "calculation": [
+        "deductible applied 0 (remaining was 0)",
+        "co-pay 30% of 1800 = 540",
+        "plan pays 1260, member pays 540"
+      ],
+      "ledger_before": {
+        "deductible_met": 1500,
+        "annual_paid": 1190,
+        "sublimit_used": { "maternity": 0, "dental_optical": 0 }
+      },
+      "ledger_after": {
+        "deductible_met": 1500,
+        "annual_paid": 2450,
+        "sublimit_used": { "maternity": 0, "dental_optical": 0 }
+      },
+      "member_explanation": "Your physiotherapy is covered. Your deductible was already met earlier this year, so only the 30% outpatient share applied — the plan paid 1,260 and your share was 540.",
+      "broker_explanation": "Second general claim on P1, deductible already met. Annual paid now 2,450 against a 150,000 limit. Nothing here argues for a plan change.",
+      "decided_by": "system",
+      "decided_by_user_id": null,
+      "supersedes_event_id": null,
+      "appeal_of_event_id": null
+    }
+  ],
+  "benefit_ledger": [
+    {
+      "policy_id": "980075a5-5db8-59ad-bd53-7d3cd3c48bac",
+      "deductible_met": 1500,
+      "annual_paid": 2450,
+      "sublimit_used": { "maternity": 0, "dental_optical": 0 },
+      "last_event_id": "f75010f1-9131-57a9-b5ff-22f7eb8cec55"
+    },
+    {
+      "policy_id": "2fb93ad4-56a8-590c-97cc-e057d98c84e4",
+      "deductible_met": 0,
+      "annual_paid": 0,
+      "sublimit_used": { "maternity": 0, "dental_optical": 0 },
+      "last_event_id": null
+    },
+    {
+      "policy_id": "21ef3a79-5339-5865-b029-c51fb47c36de",
+      "deductible_met": 0,
+      "annual_paid": 0,
+      "sublimit_used": { "maternity": 0, "dental_optical": 0 },
+      "last_event_id": null
+    },
+    {
+      "policy_id": "67b31fce-9af0-5df5-a0f2-5e61b292e20b",
+      "deductible_met": 0,
+      "annual_paid": 0,
+      "sublimit_used": { "maternity": 0, "dental_optical": 0 },
+      "last_event_id": null
+    },
+    {
+      "policy_id": "adc7ca24-3ab6-5501-8556-5b5324caf97d",
+      "deductible_met": 0,
+      "annual_paid": 0,
+      "sublimit_used": { "maternity": 0, "dental_optical": 0 },
+      "last_event_id": null
+    }
+  ],
+  "plan_fit_reassessment": [
+    {
+      "id": "31551902-0ce6-5c57-8c10-abd64eabc43a",
+      "policy_id": "980075a5-5db8-59ad-bd53-7d3cd3c48bac",
+      "triggered_by_event_id": "f75010f1-9131-57a9-b5ff-22f7eb8cec55",
+      "verdict": "confirm",
+      "recommended_plan_id": null,
+      "broker_reasoning": "Two general outpatient claims in eight months, 5,000 billed, 2,450 paid by the plan. Member share of 2,550 is almost entirely the once-a-year deductible, now spent. No chronic or maternity exposure has appeared. Essential still matches the record; revisit only if a third claim lands before renewal.",
+      "member_reasoning": "Your plan still looks like the right fit. You have used it twice this year and the biggest part of your cost was the yearly 1,500 deductible, which you have now met — so anything else this year only costs you the 30% share.",
+      "created_by": "advisor",
+      "created_at": "2026-09-05T10:00:00Z"
+    }
+  ]
+}

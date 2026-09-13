@@ -341,6 +341,235 @@ CREATE TABLE `plan_fit_reassessment` (
 );
 --> statement-breakpoint
 CREATE INDEX `plan_fit_reassessment_policy_id_idx` ON `plan_fit_reassessment` (`policy_id`);--> statement-breakpoint
+CREATE TABLE `channel_identity` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text,
+	`person_id` text,
+	`channel` text NOT NULL,
+	`address` text NOT NULL,
+	`display_name` text,
+	`verified_at` integer,
+	`is_primary` integer DEFAULT false NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `app_user`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`person_id`) REFERENCES `person`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `channel_identity_user_id_idx` ON `channel_identity` (`user_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `channel_identity_channel_address_key` ON `channel_identity` (`channel`,`address`);--> statement-breakpoint
+CREATE TABLE `message_template` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`channel` text NOT NULL,
+	`locale` text DEFAULT 'en' NOT NULL,
+	`category` text,
+	`body` text NOT NULL,
+	`variables` text DEFAULT '[]' NOT NULL,
+	`external_id` text,
+	`approved_at` integer
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `message_template_name_channel_locale_key` ON `message_template` (`name`,`channel`,`locale`);--> statement-breakpoint
+CREATE TABLE `conversation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`channel` text NOT NULL,
+	`purpose` text NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`locale` text DEFAULT 'en' NOT NULL,
+	`channel_identity_id` text,
+	`user_id` text,
+	`person_id` text,
+	`application_id` text,
+	`policy_id` text,
+	`assigned_advisor_id` text,
+	`external_thread_id` text,
+	`started_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`last_inbound_at` integer,
+	`last_outbound_at` integer,
+	`window_expires_at` integer,
+	`closed_at` integer,
+	FOREIGN KEY (`channel_identity_id`) REFERENCES `channel_identity`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`user_id`) REFERENCES `app_user`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`person_id`) REFERENCES `person`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`application_id`) REFERENCES `application`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`policy_id`) REFERENCES `policy`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`assigned_advisor_id`) REFERENCES `app_user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `conversation_application_id_idx` ON `conversation` (`application_id`);--> statement-breakpoint
+CREATE INDEX `conversation_policy_id_idx` ON `conversation` (`policy_id`);--> statement-breakpoint
+CREATE INDEX `conversation_status_last_inbound_idx` ON `conversation` (`status`,"last_inbound_at" desc);--> statement-breakpoint
+CREATE UNIQUE INDEX `conversation_channel_external_thread_id_key` ON `conversation` (`channel`,`external_thread_id`);--> statement-breakpoint
+CREATE TABLE `message` (
+	`id` text PRIMARY KEY NOT NULL,
+	`conversation_id` text NOT NULL,
+	`seq` integer NOT NULL,
+	`direction` text NOT NULL,
+	`role` text NOT NULL,
+	`type` text DEFAULT 'text' NOT NULL,
+	`body_text` text,
+	`payload` text,
+	`template_id` text,
+	`template_variables` text,
+	`provider` text,
+	`external_message_id` text,
+	`delivery_status` text DEFAULT 'pending' NOT NULL,
+	`provider_timestamp` integer,
+	`received_at` integer,
+	`failed_reason` text,
+	`in_reply_to_message_id` text,
+	`redacted` integer DEFAULT false NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	FOREIGN KEY (`conversation_id`) REFERENCES `conversation`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`template_id`) REFERENCES `message_template`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`in_reply_to_message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "template_only_outbound" CHECK("message"."type" <> 'template' or "message"."direction" = 'outbound'),
+	CONSTRAINT "has_content" CHECK("message"."body_text" is not null or "message"."payload" is not null or "message"."template_id" is not null or "message"."type" = 'media')
+);
+--> statement-breakpoint
+CREATE INDEX `message_conversation_provider_ts_idx` ON `message` (`conversation_id`,`provider_timestamp`);--> statement-breakpoint
+CREATE UNIQUE INDEX `message_conversation_id_seq_key` ON `message` (`conversation_id`,`seq`);--> statement-breakpoint
+CREATE UNIQUE INDEX `message_provider_external_message_id_key` ON `message` (`provider`,`external_message_id`);--> statement-breakpoint
+CREATE TABLE `message_media` (
+	`id` text PRIMARY KEY NOT NULL,
+	`message_id` text NOT NULL,
+	`media_type` text NOT NULL,
+	`mime_type` text,
+	`storage_uri` text NOT NULL,
+	`bytes` integer,
+	`sha256` text,
+	`caption` text,
+	FOREIGN KEY (`message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `conversation_question` (
+	`id` text PRIMARY KEY NOT NULL,
+	`conversation_id` text NOT NULL,
+	`asked_message_id` text,
+	`answered_message_id` text,
+	`field_key` text NOT NULL,
+	`target_table` text,
+	`target_column` text,
+	`target_row_id` text,
+	`trigger_rule` text,
+	`severity` text NOT NULL,
+	`question_text` text NOT NULL,
+	`status` text DEFAULT 'asked' NOT NULL,
+	`ask_count` integer DEFAULT 1 NOT NULL,
+	`answer_raw` text,
+	`asked_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`resolved_at` integer,
+	FOREIGN KEY (`conversation_id`) REFERENCES `conversation`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asked_message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`answered_message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "conversation_question_ask_count_max" CHECK("conversation_question"."ask_count" <= 2),
+	CONSTRAINT "answered_has_answer" CHECK("conversation_question"."status" <> 'answered' or "conversation_question"."answered_message_id" is not null)
+);
+--> statement-breakpoint
+CREATE INDEX `conversation_question_conversation_status_idx` ON `conversation_question` (`conversation_id`,`status`);--> statement-breakpoint
+CREATE INDEX `conversation_question_field_key_idx` ON `conversation_question` (`field_key`);--> statement-breakpoint
+CREATE TABLE `ai_decision` (
+	`id` text PRIMARY KEY NOT NULL,
+	`decision_type` text NOT NULL,
+	`subject_type` text NOT NULL,
+	`subject_id` text NOT NULL,
+	`conversation_id` text,
+	`model_run_id` text,
+	`output` text NOT NULL,
+	`summary` text,
+	`confidence` numeric,
+	`uncertainty_reason` text,
+	`requires_review` integer DEFAULT false NOT NULL,
+	`status` text DEFAULT 'proposed' NOT NULL,
+	`review_task_id` text,
+	`applied_to_id` text,
+	`superseded_by_id` text,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`resolved_at` integer,
+	FOREIGN KEY (`conversation_id`) REFERENCES `conversation`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`model_run_id`) REFERENCES `model_run`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`review_task_id`) REFERENCES `review_task`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`superseded_by_id`) REFERENCES `ai_decision`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "ai_decision_confidence_range" CHECK("ai_decision"."confidence" between 0 and 1),
+	CONSTRAINT "low_confidence_needs_review" CHECK("ai_decision"."confidence" is null or "ai_decision"."confidence" >= 0.75 or "ai_decision"."requires_review" = true),
+	CONSTRAINT "review_resolution_recorded" CHECK("ai_decision"."status" not in ('accepted', 'edited', 'rejected') or "ai_decision"."resolved_at" is not null)
+);
+--> statement-breakpoint
+CREATE INDEX `ai_decision_subject_idx` ON `ai_decision` (`subject_type`,`subject_id`);--> statement-breakpoint
+CREATE INDEX `ai_decision_status_requires_review_idx` ON `ai_decision` (`status`,`requires_review`);--> statement-breakpoint
+CREATE INDEX `ai_decision_type_created_idx` ON `ai_decision` (`decision_type`,`created_at`);--> statement-breakpoint
+CREATE TABLE `model_run` (
+	`id` text PRIMARY KEY NOT NULL,
+	`purpose` text NOT NULL,
+	`provider` text NOT NULL,
+	`model_id` text NOT NULL,
+	`prompt_version` text NOT NULL,
+	`request` text,
+	`response` text,
+	`input_tokens` integer,
+	`output_tokens` integer,
+	`cost_usd` numeric,
+	`latency_ms` integer,
+	`status` text DEFAULT 'ok' NOT NULL,
+	`error_text` text,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `model_run_created_at_idx` ON `model_run` (`created_at`);--> statement-breakpoint
+CREATE TABLE `conversation_action` (
+	`id` text PRIMARY KEY NOT NULL,
+	`conversation_id` text NOT NULL,
+	`triggered_by_message_id` text,
+	`ai_decision_id` text,
+	`action_type` text NOT NULL,
+	`tool_name` text,
+	`arguments` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`subject_type` text,
+	`subject_id` text,
+	`result` text,
+	`error_text` text,
+	`actor_kind` text NOT NULL,
+	`actor_user_id` text,
+	`idempotency_key` text,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`completed_at` integer,
+	FOREIGN KEY (`conversation_id`) REFERENCES `conversation`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`triggered_by_message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`ai_decision_id`) REFERENCES `ai_decision`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`actor_user_id`) REFERENCES `app_user`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `conversation_action_idempotency_key_unique` ON `conversation_action` (`idempotency_key`);--> statement-breakpoint
+CREATE INDEX `conversation_action_conversation_created_idx` ON `conversation_action` (`conversation_id`,`created_at`);--> statement-breakpoint
+CREATE INDEX `conversation_action_subject_idx` ON `conversation_action` (`subject_type`,`subject_id`);--> statement-breakpoint
+CREATE TABLE `extraction` (
+	`id` text PRIMARY KEY NOT NULL,
+	`ai_decision_id` text,
+	`conversation_id` text,
+	`message_id` text,
+	`question_id` text,
+	`field_key` text NOT NULL,
+	`target_table` text NOT NULL,
+	`target_column` text NOT NULL,
+	`target_row_id` text,
+	`raw_span` text NOT NULL,
+	`span_start` integer,
+	`span_end` integer,
+	`value_text` text,
+	`method` text NOT NULL,
+	`confidence` numeric,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	FOREIGN KEY (`ai_decision_id`) REFERENCES `ai_decision`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`conversation_id`) REFERENCES `conversation`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`message_id`) REFERENCES `message`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`question_id`) REFERENCES `conversation_question`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "extraction_confidence_range" CHECK("extraction"."confidence" between 0 and 1),
+	CONSTRAINT "no_inference_on_gated_fields" CHECK("extraction"."method" <> 'inferred' or "extraction"."field_key" not in ('application.age', 'application.smoker', 'application.budget', 'application.policy_inception', 'application.marital_status', 'condition.raw_text', 'condition.stability', 'need.benefit_class', 'need.horizon_months'))
+);
+--> statement-breakpoint
+CREATE INDEX `extraction_target_table_row_idx` ON `extraction` (`target_table`,`target_row_id`);--> statement-breakpoint
+CREATE INDEX `extraction_conversation_id_idx` ON `extraction` (`conversation_id`);--> statement-breakpoint
 CREATE VIEW `customer_event_view` AS 
   select e.id, e.external_ref, e.policy_id, e.kind, e.policy_month, e.benefit_class,
          e.description, e.billed_amount, e.estimated_amount,
@@ -364,4 +593,27 @@ CREATE VIEW `customer_policy_view` AS
   join plan   pl on pl.id = p.plan_id
   join person pe on pe.id = p.person_id
   left join benefit_ledger l on l.policy_id = p.id
+;--> statement-breakpoint
+CREATE VIEW `ai_review_queue` AS 
+  select d.id            as ai_decision_id,
+         d.decision_type,
+         d.subject_type, d.subject_id,
+         d.summary, d.confidence, d.uncertainty_reason,
+         d.created_at,
+         r.id            as review_task_id,
+         r.priority_score,
+         r.status        as review_status,
+         m.model_id, m.prompt_version
+  from ai_decision d
+  left join review_task r on r.id = d.review_task_id
+  left join model_run  m on m.id = d.model_run_id
+  where d.status = 'proposed' and d.requires_review
+;--> statement-breakpoint
+CREATE VIEW `application_field_provenance` AS 
+  select e.target_table, e.target_column, e.target_row_id,
+         e.field_key, e.value_text, e.raw_span, e.method, e.confidence,
+         c.channel, c.id as conversation_id, msg.provider_timestamp as said_at
+  from extraction e
+  join conversation c on c.id = e.conversation_id
+  left join message msg on msg.id = e.message_id
 ;
