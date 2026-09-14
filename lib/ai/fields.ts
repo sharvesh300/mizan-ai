@@ -444,6 +444,37 @@ const LABELS: Record<string, string> = {
 
 export const labelForField = (fieldKey: string) => LABELS[fieldKey] ?? fieldKey;
 
+/**
+ * Which intake fields an assessment flag is actually about.
+ *
+ * `assessment_flag.fields` names things in the rules' vocabulary
+ * ("near_term_needs"), and the questionnaire asks in the intake vocabulary
+ * ("need.horizon_months"). This is the join between them, so an advisor
+ * clicking "ask for more" on a flagged record gets the right boxes ticked
+ * without having to know either vocabulary.
+ *
+ * Anything with no intake question behind it — expected providers, the person
+ * row — maps to nothing on purpose: offering to ask for something the
+ * questionnaire cannot collect would be a dead end.
+ */
+const FLAG_FIELD_TO_KEYS: Record<string, string[]> = {
+  near_term_needs: ["need.benefit_class", "need.horizon_months"],
+  conditions: ["condition.raw_text", "condition.stability"],
+  budget: ["application.budget"],
+  age: ["application.age"],
+  relationship: ["person.relationship"],
+  smoker: ["application.smoker"],
+  policy_inception: ["application.policy_inception"],
+  treatment_outside_uae_expected: ["application.treatment_outside_uae_expected"],
+};
+
+export const fieldKeysForFlagFields = (names: string[]): string[] => [
+  ...new Set(names.flatMap((name) => FLAG_FIELD_TO_KEYS[name] ?? [])),
+];
+
+/** Everything the questionnaire can ask for, in a stable order. */
+export const askableFields = () => FIELDS.map((field) => ({ key: field.key, label: labelForField(field.key) }));
+
 /** The outstanding fields, described for the prompt with their controls. */
 export const questionCatalogue = (keys: string[]) =>
   keys
