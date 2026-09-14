@@ -12,6 +12,7 @@ import {
   applicationStatusTone,
   cohortLabel,
   dateLabel,
+  isWithAdvisor,
   money,
   reviewStatusLabel,
   reviewStatusTone,
@@ -126,7 +127,7 @@ async function ApplicantOverview({ userId, name }: { userId: string; name: strin
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <ApplicationJourney status={app.status} />
+                    <ApplicationJourney status={app.status} withAdvisor={isWithAdvisor(app.status)} />
                     <Button
             nativeButton={false}
                       variant="outline"

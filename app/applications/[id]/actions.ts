@@ -30,19 +30,26 @@ import {
   applicationStatusHistory,
   assessment,
   assessmentFlag,
+  benefitLedger,
   conversation,
   conversationQuestion,
   extraction,
+  plan,
+  policy,
+  quote,
+  recommendation,
   reviewDecision,
   reviewTask,
   type ApplicationStatus,
   type ConfidenceLevel,
 } from "@/db/schema";
 import { validateAndClassify } from "@/lib/ai/assessment-session";
+import { scheduleRecommendation } from "@/lib/ai/recommendation-session";
 import { fieldByKey, labelForField } from "@/lib/ai/fields";
 import { buildQuestion } from "@/lib/ai/questions";
 import { replayFromExtractions, sayAssistant } from "@/lib/ai/intake-session";
 import { emptyDraft } from "@/lib/intake";
+import { isSelectionReview } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
 /** Only an advisor decides. Anything else is a bug or a forged form post. */
@@ -94,8 +101,12 @@ async function moveApplication(input: {
  * thread they had with us rather than in a notification with no context. A
  * form application has no conversation, and that is fine — the message is
  * still on the decision row, and the application page renders it.
+ *
+ * Returns the conversation id (or null when there was none) so callers that
+ * need to close the thread or revalidate its chat route directly — issuing a
+ * policy is the one that does both — do not have to look it up twice.
  */
-async function tellApplicant(applicationId: string, text: string) {
+async function tellApplicant(applicationId: string, text: string, payload?: Record<string, unknown>) {
   const [convo] = await db
     .select({ id: conversation.id })
     .from(conversation)
@@ -104,14 +115,23 @@ async function tellApplicant(applicationId: string, text: string) {
     .limit(1);
   if (!convo) return null;
 
-  await sayAssistant(convo.id, text, { kind: "advisor_decision" });
+  await sayAssistant(convo.id, text, payload ?? { kind: "advisor_decision" });
   return convo.id;
 }
 
-const revalidate = (applicationId: string) => {
+/**
+ * `/policies` and `/` are included because `issuePolicy` writes a `policy`
+ * row here — without them, the applicant's "My cover" page and dashboard
+ * stay on their pre-issuance cache until an unrelated navigation happens to
+ * revalidate them.
+ */
+const revalidate = (applicationId: string, conversationId?: string | null) => {
   revalidatePath(`/applications/${applicationId}`);
   revalidatePath("/applications");
   revalidatePath("/queue");
+  revalidatePath("/policies");
+  revalidatePath("/");
+  if (conversationId) revalidatePath(`/applications/new/chat/${conversationId}`);
 };
 
 // ---------------------------------------------------------------------------
@@ -146,6 +166,13 @@ export async function approveAssessment(taskId: string, formData: FormData): Pro
     actorUserId: user.id,
     reason: notes ? `Assessment approved — ${notes}` : "Assessment approved by advisor",
   });
+
+  // The gate this task opened is now clear — recommendation can start.
+  // Scheduled, not awaited: the agent's tool-call loop can take several model
+  // round-trips, and the advisor's click should not hang on it — it runs
+  // after this response goes out and posts its own chat follow-up when done
+  // (lib/ai/recommendation-session.ts's scheduleRecommendation).
+  scheduleRecommendation(task.subjectId);
 
   revalidate(task.subjectId);
 }
@@ -228,6 +255,13 @@ export async function editAssessment(taskId: string, formData: FormData): Promis
     actorUserId: user.id,
     reason: `Cohort changed to ${cohort} — ${notes}`,
   });
+
+  // The gate this task opened is now clear — recommendation can start.
+  // Scheduled, not awaited: the agent's tool-call loop can take several model
+  // round-trips, and the advisor's click should not hang on it — it runs
+  // after this response goes out and posts its own chat follow-up when done
+  // (lib/ai/recommendation-session.ts's scheduleRecommendation).
+  scheduleRecommendation(task.subjectId);
 
   revalidate(task.subjectId);
 }
@@ -391,4 +425,316 @@ export async function reclassify(applicationId: string): Promise<void> {
   await advisorOnly();
   await validateAndClassify(applicationId, { force: true });
   revalidate(applicationId);
+}
+
+// ---------------------------------------------------------------------------
+// Two different questions land on the same `recommendation` row, and a
+// review task alone does not say which one an advisor is answering:
+//
+//   Review 1.5 — an INFORMATIONAL quality check. Opened in
+//   lib/ai/recommendation-session.ts in PARALLEL with the applicant already
+//   seeing the shortlist card in chat — a fallback, a failed verify, or low
+//   confidence. The applicant has not necessarily chosen anything yet, and is
+//   never held back for this. It carries no approve/edit/override verb —
+//   only `markRecommendationChecked` below — because nothing irreversible (or
+//   reversible-but-consequential) belongs on a row the applicant may still
+//   walk away from.
+//
+//   Review 2 — the applicant's own choice, via `pickPlan`
+//   (app/applications/new/actions.ts). THIS is what gates policy issuance,
+//   and the only place approve/edit/override are reachable at all.
+//
+// `isSelectionReview` (lib/queries.ts) is the only thing that tells them
+// apart — a `select_plan` conversation_action naming this recommendation.
+// approve/edit/override each refuse outright when it is false: getting this
+// branch wrong is exactly what issued a policy nobody had chosen.
+// ---------------------------------------------------------------------------
+
+async function openRecommendationTask(taskId: string) {
+  const task = await openTask(taskId);
+  const [reco] = await db.select().from(recommendation).where(eq(recommendation.id, task.subjectId)).limit(1);
+  if (!reco) throw new Error("Recommendation not found for this task.");
+  return { task, reco };
+}
+
+/** Same check `pickPlan` (app/applications/new/actions.ts) runs on the applicant's own pick — an advisor swapping the plan is bound by the same panel. */
+async function isEligiblePlan(applicationId: string, planId: string): Promise<boolean> {
+  const [row] = await db.select({ eligible: quote.eligible }).from(quote).where(and(eq(quote.applicationId, applicationId), eq(quote.planId, planId))).limit(1);
+  return Boolean(row?.eligible);
+}
+
+/**
+ * Review 1.5's only verb. No plan decision to record — just acknowledges an
+ * advisor looked at a shortlist the system was not fully confident in, so the
+ * audit trail exists without ever blocking the applicant, who already has
+ * the cards.
+ */
+export async function markRecommendationChecked(taskId: string, formData: FormData): Promise<void> {
+  const user = await advisorOnly();
+  const { task, reco } = await openRecommendationTask(taskId);
+  const notes = (formData.get("notes")?.toString() ?? "").trim() || null;
+  if (await isSelectionReview(reco.id)) {
+    throw new Error("The applicant has already chosen — use Approve, Edit, Override or Reject instead.");
+  }
+
+  await db.insert(reviewDecision).values({ reviewTaskId: task.id, actorUserId: user.id, action: "approve", notes });
+  await db
+    .update(reviewTask)
+    .set({ status: "resolved", assignedToUserId: user.id, resolvedAt: new Date() })
+    .where(eq(reviewTask.id, task.id));
+  await db
+    .update(aiDecision)
+    .set({ status: "accepted", resolvedAt: new Date() })
+    .where(and(eq(aiDecision.reviewTaskId, task.id), eq(aiDecision.status, "proposed")));
+
+  revalidate(reco.applicationId);
+}
+
+/** First real writer of `policy`/`benefit_ledger` — nothing else in the app inserts either table. */
+async function issuePolicy(input: { applicationId: string; recommendationId: string; planId: string; actorUserId: string }) {
+  const [row] = await db
+    .select({ policyInception: application.policyInception, personId: application.personId })
+    .from(application)
+    .where(eq(application.id, input.applicationId))
+    .limit(1);
+  const [planRow] = await db.select({ name: plan.name, annualPremium: plan.annualPremium }).from(plan).where(eq(plan.id, input.planId)).limit(1);
+  if (!row || !planRow) throw new Error("Cannot issue a policy — application or plan not found.");
+
+  const policyNumber = `POL-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  const [created] = await db
+    .insert(policy)
+    .values({
+      applicationId: input.applicationId,
+      personId: row.personId,
+      planId: input.planId,
+      recommendationId: input.recommendationId,
+      policyNumber,
+      inceptionDate: row.policyInception,
+      status: "active",
+      annualPremium: planRow.annualPremium,
+    })
+    .returning();
+
+  await db.insert(benefitLedger).values({
+    policyId: created.id,
+    deductibleMet: 0,
+    annualPaid: 0,
+    sublimitUsed: { maternity: 0, dental_optical: 0 },
+  });
+
+  await moveApplication({
+    applicationId: input.applicationId,
+    toStatus: "policy_issued",
+    actorUserId: input.actorUserId,
+    reason: `Policy ${policyNumber} issued — ${input.planId}`,
+  });
+
+  // The systematic confirmation — distinct from whatever personal note the
+  // advisor added via `tellApplicant`, and sent on EVERY issuing path
+  // (approve/edit/override alike), which previously left edit/override
+  // silent unless the advisor happened to type a member message. A policy is
+  // the last thing that happens to this application, so the thread closes
+  // here rather than sitting on `awaiting_review` forever.
+  const conversationId = await tellApplicant(
+    input.applicationId,
+    `Your policy is active — ${planRow.name}, ${policyNumber}.`,
+    { kind: "policy_issued", policyId: created.id, policyNumber, planId: input.planId },
+  );
+  if (conversationId) {
+    await db.update(conversation).set({ status: "completed", lastOutboundAt: new Date() }).where(eq(conversation.id, conversationId));
+  }
+
+  return { ...created, conversationId };
+}
+
+// ---------------------------------------------------------------------------
+// Approve — the recommendation stands
+// ---------------------------------------------------------------------------
+
+export async function approveRecommendation(taskId: string, formData: FormData): Promise<void> {
+  const user = await advisorOnly();
+  const { task, reco } = await openRecommendationTask(taskId);
+  const notes = (formData.get("notes")?.toString() ?? "").trim() || null;
+  if (!(await isSelectionReview(reco.id))) {
+    throw new Error("The applicant has not chosen a plan yet — use Mark checked instead.");
+  }
+
+  await db.insert(reviewDecision).values({ reviewTaskId: task.id, actorUserId: user.id, action: "approve", notes });
+  await db
+    .update(reviewTask)
+    .set({ status: "resolved", assignedToUserId: user.id, resolvedAt: new Date() })
+    .where(eq(reviewTask.id, task.id));
+  await db.update(recommendation).set({ status: "approved" }).where(eq(recommendation.id, reco.id));
+  await db
+    .update(aiDecision)
+    .set({ status: "accepted", resolvedAt: new Date() })
+    .where(and(eq(aiDecision.reviewTaskId, task.id), eq(aiDecision.status, "proposed")));
+
+  // Review 2 — the applicant chose this plan. This is the irreversible act.
+  // The advisor's own note, if any, reads before the systematic "policy
+  // active" confirmation that `issuePolicy` sends and closes the thread with.
+  if (notes) await tellApplicant(reco.applicationId, `Approved — ${notes}`);
+  const issued = await issuePolicy({ applicationId: reco.applicationId, recommendationId: reco.id, planId: reco.planId, actorUserId: user.id });
+
+  revalidate(reco.applicationId, issued.conversationId);
+}
+
+// ---------------------------------------------------------------------------
+// Edit — a correction in the same direction as the system's
+// ---------------------------------------------------------------------------
+
+export async function editRecommendation(taskId: string, formData: FormData): Promise<void> {
+  const user = await advisorOnly();
+  const { task, reco } = await openRecommendationTask(taskId);
+
+  const planId = (formData.get("planId")?.toString() ?? "").trim() || reco.planId;
+  const notes = (formData.get("notes")?.toString() ?? "").trim();
+  const memberMessage = (formData.get("memberMessage")?.toString() ?? "").trim();
+  if (!notes) throw new Error("Say why you changed it — an unexplained correction is not a decision.");
+  if (!(await isSelectionReview(reco.id))) {
+    throw new Error("The applicant has not chosen a plan yet — use Mark checked instead.");
+  }
+  const planChanged = planId !== reco.planId;
+  if (planChanged) {
+    if (!(await isEligiblePlan(reco.applicationId, planId))) throw new Error("That plan is not on this applicant's panel.");
+    if (!memberMessage) throw new Error("You're changing the applicant's plan — say what they'll read about it.");
+  }
+
+  await db.update(recommendation).set({ status: "superseded" }).where(eq(recommendation.id, reco.id));
+  const [created] = await db
+    .insert(recommendation)
+    .values({
+      applicationId: reco.applicationId,
+      planId,
+      version: reco.version + 1,
+      status: "edited",
+      brokerReasoning: notes,
+      memberReasoning: memberMessage || reco.memberReasoning,
+      confidence: reco.confidence,
+      uncertaintyReason: null,
+      createdBy: "advisor",
+      createdByUserId: user.id,
+    })
+    .returning();
+
+  await db.insert(reviewDecision).values({
+    reviewTaskId: task.id,
+    actorUserId: user.id,
+    action: "edit",
+    notes,
+    payload: { from: { planId: reco.planId }, to: { planId } },
+  });
+  await db
+    .update(reviewTask)
+    .set({ status: "resolved", assignedToUserId: user.id, resolvedAt: new Date() })
+    .where(eq(reviewTask.id, task.id));
+  await db
+    .update(aiDecision)
+    .set({ status: "edited", resolvedAt: new Date() })
+    .where(and(eq(aiDecision.reviewTaskId, task.id), eq(aiDecision.status, "proposed")));
+
+  // The advisor's note to the applicant, if any, reads before the systematic
+  // "policy active" confirmation `issuePolicy` sends and closes the thread
+  // with — required above whenever the plan itself changed.
+  if (memberMessage) await tellApplicant(reco.applicationId, memberMessage);
+  const issued = await issuePolicy({ applicationId: reco.applicationId, recommendationId: created.id, planId, actorUserId: user.id });
+
+  revalidate(reco.applicationId, issued.conversationId);
+}
+
+// ---------------------------------------------------------------------------
+// Override — a different call from the system's entirely
+// ---------------------------------------------------------------------------
+
+export async function overrideRecommendation(taskId: string, formData: FormData): Promise<void> {
+  const user = await advisorOnly();
+  const { task, reco } = await openRecommendationTask(taskId);
+
+  const planId = (formData.get("planId")?.toString() ?? "").trim();
+  const notes = (formData.get("notes")?.toString() ?? "").trim();
+  const memberMessage = (formData.get("memberMessage")?.toString() ?? "").trim();
+  if (!planId) throw new Error("Pick the plan you are overriding to.");
+  if (!notes) throw new Error("Say why you are overriding it.");
+  if (!(await isSelectionReview(reco.id))) {
+    throw new Error("The applicant has not chosen a plan yet — use Mark checked instead.");
+  }
+  if (!(await isEligiblePlan(reco.applicationId, planId))) throw new Error("That plan is not on this applicant's panel.");
+  if (planId !== reco.planId && !memberMessage) {
+    throw new Error("You're overriding to a different plan — say what the applicant will read about it.");
+  }
+
+  await db.update(recommendation).set({ status: "superseded" }).where(eq(recommendation.id, reco.id));
+  const [created] = await db
+    .insert(recommendation)
+    .values({
+      applicationId: reco.applicationId,
+      planId,
+      version: reco.version + 1,
+      status: "overridden",
+      brokerReasoning: notes,
+      memberReasoning: memberMessage || "An advisor has chosen a different plan for you.",
+      confidence: null,
+      uncertaintyReason: null,
+      createdBy: "advisor",
+      createdByUserId: user.id,
+    })
+    .returning();
+
+  await db.insert(reviewDecision).values({
+    reviewTaskId: task.id,
+    actorUserId: user.id,
+    action: "override",
+    notes,
+    payload: { from: { planId: reco.planId }, to: { planId } },
+  });
+  await db
+    .update(reviewTask)
+    .set({ status: "resolved", assignedToUserId: user.id, resolvedAt: new Date() })
+    .where(eq(reviewTask.id, task.id));
+  await db
+    .update(aiDecision)
+    .set({ status: "edited", resolvedAt: new Date() })
+    .where(and(eq(aiDecision.reviewTaskId, task.id), eq(aiDecision.status, "proposed")));
+
+  if (memberMessage) await tellApplicant(reco.applicationId, memberMessage);
+  const issued = await issuePolicy({ applicationId: reco.applicationId, recommendationId: created.id, planId, actorUserId: user.id });
+
+  revalidate(reco.applicationId, issued.conversationId);
+}
+
+// ---------------------------------------------------------------------------
+// Reject — no cover offered
+// ---------------------------------------------------------------------------
+
+export async function rejectRecommendation(taskId: string, formData: FormData): Promise<void> {
+  const user = await advisorOnly();
+  const { task, reco } = await openRecommendationTask(taskId);
+
+  const notes = (formData.get("notes")?.toString() ?? "").trim();
+  const memberMessage = (formData.get("memberMessage")?.toString() ?? "").trim();
+  if (!notes) throw new Error("Record why this was rejected.");
+  if (!memberMessage) throw new Error("Write what the applicant will read. They are owed an explanation.");
+
+  await db.update(recommendation).set({ status: "superseded" }).where(eq(recommendation.id, reco.id));
+
+  await db.insert(reviewDecision).values({
+    reviewTaskId: task.id,
+    actorUserId: user.id,
+    action: "reject",
+    notes,
+    payload: { memberMessage },
+  });
+  await db
+    .update(reviewTask)
+    .set({ status: "resolved", assignedToUserId: user.id, resolvedAt: new Date() })
+    .where(eq(reviewTask.id, task.id));
+  await db
+    .update(aiDecision)
+    .set({ status: "rejected", resolvedAt: new Date() })
+    .where(and(eq(aiDecision.reviewTaskId, task.id), eq(aiDecision.status, "proposed")));
+
+  await moveApplication({ applicationId: reco.applicationId, toStatus: "declined", actorUserId: user.id, reason: notes });
+  await tellApplicant(reco.applicationId, memberMessage);
+
+  revalidate(reco.applicationId);
 }

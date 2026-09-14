@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 import { ApplicationJourney } from "@/components/application-journey";
 import { AssessmentReview } from "@/components/assessment-review";
 import { CorrectionRequest } from "@/components/correction-request";
+import { RecommendationQualityCheck, RecommendationReview } from "@/components/recommendation-review";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge, StatusDot } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -25,6 +26,7 @@ import {
   dateLabel,
   flagSeverityLabel,
   flagSeverityTone,
+  isWithAdvisor,
   money,
   monthsLabel,
   percent,
@@ -48,7 +50,9 @@ import {
   getPolicyForApplication,
   getQuotes,
   getRecommendation,
+  getRecommendationDecision,
   getReviewTasksForApplication,
+  isSelectionReview,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
@@ -119,7 +123,11 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
             <CardTitle>Progress</CardTitle>
           </CardHeader>
           <CardContent>
-            <ApplicationJourney status={app.status} audience={isAdvisor ? "broker" : "customer"} />
+            <ApplicationJourney
+              status={app.status}
+              audience={isAdvisor ? "broker" : "customer"}
+              withAdvisor={isWithAdvisor(app.status)}
+            />
           </CardContent>
         </Card>
 
@@ -303,10 +311,11 @@ async function AdvisorRecord({
   person: Person;
   owner: { fullName: string; email: string };
 }) {
-  const [assessment, reviews, decision] = await Promise.all([
+  const [assessment, reviews, decision, recoDecision] = await Promise.all([
     getAssessment(applicationId),
     getReviewTasksForApplication(applicationId, recommendation?.recommendation.id),
     getClassificationDecision(applicationId),
+    getRecommendationDecision(applicationId),
   ]);
 
   // The one thing on this page that is waiting on a person. A resolved task is
@@ -314,6 +323,15 @@ async function AdvisorRecord({
   const openTask = reviews.find(
     ({ task }) => task.subjectType === "application" && task.status !== "resolved",
   );
+  // Review 2 — the recommendation, not the record. Distinct task, distinct
+  // question ("is this the right plan"), only ever open once Review 1 (above)
+  // is clear.
+  const openRecoTask = reviews.find(
+    ({ task }) => task.subjectType === "recommendation" && task.status !== "resolved",
+  );
+  // Which of the two questions this open task is actually asking — see the
+  // comment above `openRecommendationTask`, app/applications/[id]/actions.ts.
+  const recoReviewIsSelection = recommendation ? await isSelectionReview(recommendation.recommendation.id) : false;
 
   // Tick the boxes the flags point at, so "ask for more" opens pre-aimed at
   // whatever actually fired rather than at the whole questionnaire.
@@ -418,6 +436,22 @@ async function AdvisorRecord({
             </CardContent>
           </Card>
         )}
+
+        {openRecoTask && recommendation ? (
+          recoReviewIsSelection ? (
+            <RecommendationReview
+              taskId={openRecoTask.task.id}
+              currentPlanId={recommendation.plan.id}
+              plans={quotes.map((q) => ({ id: q.plan.id, name: q.plan.name }))}
+              uncertaintyReason={recoDecision?.uncertaintyReason ?? null}
+            />
+          ) : (
+            <RecommendationQualityCheck
+              taskId={openRecoTask.task.id}
+              uncertaintyReason={recoDecision?.uncertaintyReason ?? null}
+            />
+          )
+        ) : null}
 
         {recommendation ? (
           <Card>

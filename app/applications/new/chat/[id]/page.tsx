@@ -5,13 +5,17 @@ import { notFound } from "next/navigation";
 import { ChatAutoscroll } from "@/components/chat-autoscroll";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatQuestionnaire } from "@/components/chat-questionnaire";
+import { ChatRefresh } from "@/components/chat-refresh";
 import { PageHeader } from "@/components/page-header";
+import { PlanCard } from "@/components/plan-card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Message, MessageAvatar, MessageContent, MessageGroup } from "@/components/ui/message";
+import { Spinner } from "@/components/ui/spinner";
 import { db } from "@/db/client";
 import { conversation, conversationQuestion, message } from "@/db/schema";
 import { isQuestionnairePayload } from "@/lib/ai/intake-session";
+import { getActiveShortlist } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
 export default async function ChatIntakePage(props: PageProps<"/applications/new/chat/[id]">) {
@@ -28,17 +32,35 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   ]);
 
   const answered = questions.filter((q) => q.status === "answered" || q.status === "skipped").length;
+  // Fully closed (declined outcome message, or a legacy conversation) — every
+  // other state, including "with an advisor", still has a conversation the
+  // applicant can add to, so only this one hides the composer.
   const done = convo.status === "completed";
+  // `awaiting_review` now means an actual person owns this — either Review 1
+  // gated the record (`in_review`), or a round 2 objection is being worked.
+  // A clean record never sets this (lib/ai/conversation-continuation.ts).
+  const waitingOnAdvisor = convo.status === "awaiting_review";
 
-  // The last assistant message carries whatever the applicant answers with:
-  // a questionnaire to fill in, or quick replies next to the composer.
+  // The last assistant message carries whatever the applicant answers with
+  // right now: a questionnaire to fill in, or quick replies next to the
+  // composer. The shortlist itself is NOT read off a message payload — it is
+  // read live off the database (see getActiveShortlist) so a card an advisor
+  // has since edited, or a round the applicant has since rejected, is never
+  // shown as if it were still the open offer.
   const last = messages.at(-1);
-  const openPayload = !done && last?.role === "assistant" ? last.payload : null;
+  const openPayload = !done && !waitingOnAdvisor && last?.role === "assistant" ? last.payload : null;
   const questionnaire = isQuestionnairePayload(openPayload) ? openPayload : null;
   const suggestions =
-    !questionnaire && openPayload && typeof openPayload === "object"
-      ? ((openPayload as { suggestions?: string[] }).suggestions ?? [])
-      : [];
+    !questionnaire && openPayload && typeof openPayload === "object" ? ((openPayload as { suggestions?: string[] }).suggestions ?? []) : [];
+
+  const shortlist = convo.applicationId && !done ? await getActiveShortlist(convo.applicationId) : null;
+  // Something is still being computed in the background — the initial
+  // recommendation round, or a re-round after "none of these fit" — and
+  // there is nothing on screen yet that reflects it. Excludes
+  // `waitingOnAdvisor` so the spinner and the "With an advisor" panel are
+  // never both on screen at once — Review 1 gates the record before
+  // recommendation ever runs, so there is nothing "still working" about it.
+  const working = Boolean(convo.applicationId) && !done && !waitingOnAdvisor && (!shortlist || shortlist.pendingRound);
 
   const initials = user.fullName
     .split(" ")
@@ -58,10 +80,16 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
           title="Your application"
           description={
             done
-              ? "All done — this conversation is saved with your application."
-              : answered > 0
-                ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
-                : "Say as much or as little as you like — everything is saved as you go."
+              ? "Your cover is active — this conversation is saved with your application."
+              : waitingOnAdvisor
+                ? "An advisor has this now. We'll be back with you here."
+                : shortlist && !shortlist.pendingRound
+                  ? "We've got a plan for you — have a look below."
+                  : working
+                    ? "Working out the best plan for you — one moment."
+                    : answered > 0
+                      ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
+                      : "Say as much or as little as you like — everything is saved as you go."
           }
         />
       </div>
@@ -106,19 +134,42 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
             </div>
           ) : null}
 
-          {done ? (
+          {shortlist && !shortlist.pendingRound ? (
+            <div className="mt-4 ps-10">
+              <PlanCard
+                conversationId={id}
+                plans={shortlist.plans}
+                memberReasoning={shortlist.memberReasoning}
+                selectedPlanId={shortlist.selectedPlanId}
+              />
+            </div>
+          ) : null}
+
+          {working ? (
+            <div className="mt-4 flex items-center gap-2 ps-10 text-sm text-muted-foreground">
+              <Spinner className="size-3.5" />
+              Still working on this…
+            </div>
+          ) : null}
+
+          {done || waitingOnAdvisor ? (
             <div className="mt-6 flex flex-col items-start gap-3 rounded-xl border border-success/30 bg-success-subtle p-4">
               <p className="flex items-center gap-2 text-sm font-medium text-success">
                 <CheckCircle2Icon className="size-4" />
-                Sent to an advisor
+                {/* `done` only ever means a policy has issued — nothing else
+                    in the app closes a conversation (issuePolicy,
+                    app/applications/[id]/actions.ts). `waitingOnAdvisor` is
+                    the other, distinct state: a person owns this next, but
+                    nothing has concluded yet. */}
+                {done ? "Your cover is active" : "With an advisor"}
               </p>
               {convo.applicationId ? (
                 <Button
                   nativeButton={false}
                   size="sm"
                   render={
-                    <Link href={`/applications/${convo.applicationId}`}>
-                      Track your application
+                    <Link href={done ? "/policies" : `/applications/${convo.applicationId}`}>
+                      {done ? "View your policy" : "Track your application"}
                       <ArrowRightIcon />
                     </Link>
                   }
@@ -139,6 +190,10 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
           placeholder={questionnaire ? "…or just tell me in your own words" : "Tell me what you're after…"}
         />
       )}
+
+      {/* Polls until the background recommendation round lands — see the
+          component doc for why this is a fallback, not the primary path. */}
+      {working ? <ChatRefresh /> : null}
     </div>
   );
 }
