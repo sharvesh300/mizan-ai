@@ -1,0 +1,167 @@
+// The 8 criteria the agent may weight, and the arithmetic it never touches.
+//
+// The agent decides WHAT matters and HOW MUCH; direction (is more of this
+// number good or bad?) and the scoring math are fixed here, not something a
+// weight or a prompt can move. A raw value is min-max normalised across the
+// plans actually being compared (0 = worst on the panel, 1 = best), so a
+// criterion in AED and one in months can be weighted against each other at
+// all — comparing raw units directly would let whichever criterion has the
+// biggest numbers dominate regardless of the weight it was given.
+
+import type { AssessmentRecord, Catalogue, PlanTerms } from "@/lib/assessment";
+import { admitsKey, readNeeds } from "@/lib/assessment";
+import { estimateAnnualCost } from "./cost";
+import { buildScenario } from "./scenarios";
+import type { CriterionContribution, CriterionDirection, CriterionId, CriterionWeight, ScoredPlan, ScoreResult } from "./types";
+
+export const MIN_WEIGHT = 0.05;
+export const MAX_WEIGHT = 0.6;
+export const MAX_CRITERIA = 5;
+
+type CriterionDef = {
+  id: CriterionId;
+  direction: CriterionDirection;
+  isRelevant: (record: AssessmentRecord) => boolean;
+  /** Raw value for one plan, in the criterion's own unit. */
+  value: (plan: PlanTerms, record: AssessmentRecord, catalogue: Catalogue) => number;
+};
+
+const hasHorizonedNeed = (record: AssessmentRecord) =>
+  record.needs.some((n) => n.benefitClass != null && n.horizonMonths != null);
+
+/** A priority is free text; the dental/optical tag does not exist in the enum, so this reads the words. */
+const declaredDentalOpticalPriority = (record: AssessmentRecord) =>
+  record.priorities.some((p) => /dental|optical/i.test(p.rawText));
+
+export const CRITERIA: CriterionDef[] = [
+  {
+    id: "premium_cost",
+    direction: "lower_is_better",
+    isRelevant: () => true,
+    value: (plan) => plan.annualPremium,
+  },
+  {
+    id: "total_annual_outlay",
+    direction: "lower_is_better",
+    isRelevant: () => true,
+    // A stable, always-available basket for scoring purposes — the same one
+    // the deterministic fallback uses, so "worth weighting" and "what the
+    // fallback already does" stay the same arithmetic.
+    value: (plan, record) => estimateAnnualCost(plan, buildScenario("MEDIUM_OUTPATIENT", record)).total,
+  },
+  {
+    id: "need_coverage",
+    direction: "higher_is_better",
+    isRelevant: (record) => record.needs.length > 0,
+    value: (plan, record, catalogue) => {
+      const verdicts = readNeeds(record, catalogue);
+      if (verdicts.length === 0) return 0;
+      return verdicts.filter((v) => v.coveringAnywhere.some((p) => p.id === plan.id)).length;
+    },
+  },
+  {
+    id: "waiting_period_fit",
+    direction: "higher_is_better",
+    isRelevant: hasHorizonedNeed,
+    value: (plan, record, catalogue) => {
+      const verdicts = readNeeds(record, catalogue);
+      if (verdicts.length === 0) return 0;
+      return verdicts.filter(
+        (v) => v.usableInBudget.some((p) => p.id === plan.id) || v.usableAboveBudget.some((p) => p.id === plan.id),
+      ).length;
+    },
+  },
+  {
+    id: "network_access",
+    direction: "higher_is_better",
+    isRelevant: (record) => record.providers.length > 0,
+    value: (plan, record, catalogue) =>
+      record.providers.filter((p) => p.tier != null && catalogue.admits.has(admitsKey(plan.network, p.tier))).length,
+  },
+  {
+    id: "chronic_depth",
+    direction: "higher_is_better",
+    isRelevant: (record) => record.conditions.length > 0,
+    // Deeper cover reads as "covered, and the wait is short" — not covered at
+    // all scores 0, covered-with-no-wait scores highest.
+    value: (plan) => (plan.chronicCovered ? 100 / (1 + (plan.chronicWaitingPeriodMonths ?? 0)) : 0),
+  },
+  {
+    id: "annual_limit_headroom",
+    direction: "higher_is_better",
+    isRelevant: () => true,
+    value: (plan) => plan.annualLimit,
+  },
+  {
+    id: "dental_optical",
+    direction: "higher_is_better",
+    isRelevant: declaredDentalOpticalPriority,
+    value: (plan) => (plan.dentalOptical === "full" ? 2 : plan.dentalOptical === "basic" ? 1 : 0),
+  },
+];
+
+const CRITERIA_BY_ID = new Map(CRITERIA.map((c) => [c.id, c]));
+
+export function isCriterionRelevant(id: CriterionId, record: AssessmentRecord): boolean {
+  return CRITERIA_BY_ID.get(id)?.isRelevant(record) ?? false;
+}
+
+export function scorePlans(
+  plans: PlanTerms[],
+  record: AssessmentRecord,
+  catalogue: Catalogue,
+  weights: CriterionWeight[],
+): ScoreResult {
+  if (weights.length === 0) throw new Error("at least one criterion is required");
+  if (weights.length > MAX_CRITERIA) throw new Error(`at most ${MAX_CRITERIA} criteria — an agent that weights everything has prioritised nothing`);
+
+  const seen = new Set<CriterionId>();
+  for (const w of weights) {
+    if (seen.has(w.criterionId)) throw new Error(`criterion "${w.criterionId}" was weighted twice`);
+    seen.add(w.criterionId);
+
+    const def = CRITERIA_BY_ID.get(w.criterionId);
+    if (!def) throw new Error(`unknown criterion "${w.criterionId}" — valid set: ${CRITERIA.map((c) => c.id).join(", ")}`);
+    if (!def.isRelevant(record)) throw new Error(`criterion "${w.criterionId}" is not relevant to this record`);
+    if (w.weight < MIN_WEIGHT || w.weight > MAX_WEIGHT) {
+      throw new Error(`weight for "${w.criterionId}" must be between ${MIN_WEIGHT} and ${MAX_WEIGHT}`);
+    }
+  }
+
+  const sum = weights.reduce((s, w) => s + w.weight, 0);
+  const normalisedWeights = weights.map((w) => ({ criterionId: w.criterionId, weight: w.weight / sum }));
+
+  const rawByCriterion = new Map(
+    weights.map((w) => {
+      const def = CRITERIA_BY_ID.get(w.criterionId)!;
+      return [w.criterionId, plans.map((p) => ({ planId: p.id, raw: def.value(p, record, catalogue) }))] as const;
+    }),
+  );
+
+  const perPlan: ScoredPlan[] = plans.map((plan) => {
+    let weightedScore = 0;
+    const contributions: CriterionContribution[] = normalisedWeights.map((nw) => {
+      const def = CRITERIA_BY_ID.get(nw.criterionId)!;
+      const values = rawByCriterion.get(nw.criterionId)!;
+      const min = Math.min(...values.map((v) => v.raw));
+      const max = Math.max(...values.map((v) => v.raw));
+      const raw = values.find((v) => v.planId === plan.id)!.raw;
+
+      let normalisedValue = max === min ? 1 : (raw - min) / (max - min);
+      if (def.direction === "lower_is_better") normalisedValue = 1 - normalisedValue;
+
+      const contribution = normalisedValue * nw.weight;
+      weightedScore += contribution;
+      return { criterionId: nw.criterionId, rawValue: raw, normalisedValue, contribution };
+    });
+
+    return { planId: plan.id, weightedScore, rank: 0, contributions };
+  });
+
+  perPlan.sort((a, b) => b.weightedScore - a.weightedScore);
+  perPlan.forEach((row, i) => {
+    row.rank = i + 1;
+  });
+
+  return { rawWeights: weights, normalisedWeights, perPlan };
+}
