@@ -1,7 +1,15 @@
-import { AlertTriangleIcon, CheckCircle2Icon, ShieldCheckIcon, XCircleIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  MessageSquareIcon,
+  ShieldCheckIcon,
+  XCircleIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApplicationJourney } from "@/components/application-journey";
+import { AssessmentReview } from "@/components/assessment-review";
+import { CorrectionRequest } from "@/components/correction-request";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge, StatusDot } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -22,12 +30,20 @@ import {
   percent,
   recoStatusLabel,
   recoStatusTone,
+  reviewActionLabel,
+  reviewActionTone,
   reviewStatusLabel,
   reviewStatusTone,
 } from "@/lib/domain";
+import { askableFields, fieldKeysForFlagFields } from "@/lib/ai/fields";
+import { COHORTS } from "@/lib/assessment";
 import {
+  countOpenQuestions,
   getApplication,
   getAssessment,
+  getClassificationDecision,
+  getConversationForApplication,
+  getMemberNotices,
   getDeclared,
   getPolicyForApplication,
   getQuotes,
@@ -118,12 +134,24 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
             owner={record.owner}
           />
         ) : (
-          <ApplicantRecord declared={declared} quotes={quotes} recommendation={recommendation} app={app} />
+          <ApplicantRecord
+            applicationId={id}
+            declared={declared}
+            quotes={quotes}
+            recommendation={recommendation}
+            app={app}
+          />
         )}
       </PageBody>
     </>
   );
 }
+
+/** The member-register text an advisor wrote on a reject / request-info. */
+const memberMessageOf = (payload: Record<string, unknown> | null): string | null => {
+  const value = payload?.memberMessage;
+  return typeof value === "string" && value.trim() ? value : null;
+};
 
 type Declared = Awaited<ReturnType<typeof getDeclared>>;
 type Quotes = Awaited<ReturnType<typeof getQuotes>>;
@@ -135,19 +163,77 @@ type Person = NonNullable<Awaited<ReturnType<typeof getApplication>>>["person"];
 // Applicant register — their coverage, their words, no internal vocabulary
 // ---------------------------------------------------------------------------
 
-function ApplicantRecord({
+async function ApplicantRecord({
+  applicationId,
   declared,
   quotes,
   recommendation,
   app,
 }: {
+  applicationId: string;
   declared: Declared;
   quotes: Quotes;
   recommendation: Reco;
   app: App;
 }) {
+  // Everything an advisor has said TO them, and where the conversation is.
+  // Never the note the advisor wrote for the file — `getMemberNotices` does
+  // not select that column at all.
+  const [notices, convo] = await Promise.all([
+    getMemberNotices(applicationId),
+    getConversationForApplication(applicationId),
+  ]);
+  const waitingOnThem = convo && app.status === "in_intake" ? await countOpenQuestions(convo.id) : 0;
+  const latestAsk = notices.find((notice) => notice.action === "request_info");
+  const decline = notices.find((notice) => notice.action === "reject");
+
   return (
     <>
+      {/* An advisor needs something before this can go further. Their words,
+          and a way straight back to just those questions — not intake again. */}
+      {waitingOnThem > 0 ? (
+        <Alert>
+          <MessageSquareIcon className="text-warning" />
+          <AlertTitle>We need one more thing</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p className="text-pretty">
+              {latestAsk?.message ??
+                "An advisor has asked for a little more before we can finish this off."}
+            </p>
+            <Button
+            nativeButton={false}
+              size="sm"
+              render={
+                <Link href={`/applications/new/chat/${convo!.id}`}>
+                  Answer {waitingOnThem === 1 ? "the question" : `the ${waitingOnThem} questions`}
+                </Link>
+              }
+            />
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {/* Declined. The advisor's own words to them, and what they can do —
+          never the internal reason, and never a classification. */}
+      {app.status === "declined" ? (
+        <Alert>
+          <XCircleIcon className="text-destructive" />
+          <AlertTitle>We could not take this application further</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p className="text-pretty">
+              {decline?.message ??
+                "An advisor has closed this application. Get in touch and we will talk it through."}
+            </p>
+            <Button
+            nativeButton={false}
+              size="sm"
+              variant="outline"
+              render={<Link href="/applications/new">Start a new application</Link>}
+            />
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {recommendation ? (
         <Card>
           <CardHeader>
@@ -183,11 +269,13 @@ function ApplicantRecord({
         <CardHeader>
           <CardTitle>What you told us</CardTitle>
           <CardDescription>
-            We reuse this everywhere — you should never be asked for it twice. Something wrong? Tell your advisor.
+            We reuse this everywhere — you should never be asked for it twice.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
           <DeclaredDetails declared={declared} app={app} />
+          <Separator />
+          <CorrectionRequest applicationId={applicationId} />
         </CardContent>
       </Card>
     </>
@@ -215,10 +303,24 @@ async function AdvisorRecord({
   person: Person;
   owner: { fullName: string; email: string };
 }) {
-  const [assessment, reviews] = await Promise.all([
+  const [assessment, reviews, decision] = await Promise.all([
     getAssessment(applicationId),
     getReviewTasksForApplication(applicationId, recommendation?.recommendation.id),
+    getClassificationDecision(applicationId),
   ]);
+
+  // The one thing on this page that is waiting on a person. A resolved task is
+  // history and belongs in the Review tab, not in front of them as a decision.
+  const openTask = reviews.find(
+    ({ task }) => task.subjectType === "application" && task.status !== "resolved",
+  );
+
+  // Tick the boxes the flags point at, so "ask for more" opens pre-aimed at
+  // whatever actually fired rather than at the whole questionnaire.
+  const suggested = new Set(
+    fieldKeysForFlagFields((assessment?.flags ?? []).flatMap((flag) => flag.fields)),
+  );
+  const askable = askableFields().map((field) => ({ ...field, suggested: suggested.has(field.key) }));
 
   return (
     <Tabs defaultValue="record">
@@ -230,6 +332,18 @@ async function AdvisorRecord({
       </TabsList>
 
       <TabsContent value="record" className="space-y-4 pt-4">
+        {openTask && assessment ? (
+          <AssessmentReview
+            taskId={openTask.task.id}
+            applicationId={applicationId}
+            cohort={assessment.cohort}
+            confidence={assessment.confidence}
+            cohorts={COHORTS}
+            askable={askable}
+            uncertaintyReason={decision?.uncertaintyReason ?? null}
+          />
+        ) : null}
+
         {/* BROKER ONLY. Cohort and flags are routing vocabulary — this block
             has no equivalent in the applicant view by design. */}
         <Card>
@@ -396,14 +510,26 @@ async function AdvisorRecord({
                 <CardContent className="space-y-3">
                   {decisions.map(({ decision, actor }) => (
                     <div key={decision.id} className="flex gap-2.5 text-sm">
-                      <StatusDot tone="success" className="mt-1.5" />
-                      <div>
+                      <StatusDot tone={reviewActionTone[decision.action]} className="mt-1.5" />
+                      <div className="min-w-0 space-y-1">
                         <p>
-                          <span className="font-medium capitalize">{decision.action}</span> by {actor.fullName} ·{" "}
+                          <span className="font-medium">{reviewActionLabel[decision.action]}</span> by{" "}
+                          {actor.fullName} ·{" "}
                           <span className="text-muted-foreground">{dateLabel(decision.decidedAt)}</span>
                         </p>
                         {decision.notes ? (
                           <p className="text-muted-foreground text-pretty">{decision.notes}</p>
+                        ) : null}
+                        {/* Same decision, the applicant's register. Kept next
+                            to the note so the two can be read against each
+                            other — one explanation shown twice reads wrong in
+                            one of the views, and this is where you would see it. */}
+                        {memberMessageOf(decision.payload) ? (
+                          <p className="rounded-lg border border-dashed px-3 py-2 text-pretty">
+                            <span className="text-xs text-muted-foreground">What the applicant was told</span>
+                            <br />
+                            {memberMessageOf(decision.payload)}
+                          </p>
                         ) : null}
                       </div>
                     </div>
