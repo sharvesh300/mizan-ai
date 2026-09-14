@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Chatbot AI Pipeline & Recommendation Workflow",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "Message to policy",
+        "focus": ["applicant", "chat", "validate", "recommend", "verify", "present_choice", "review2"],
+        "note": "Follow one applicant message from intake through the agent's tool-call loop to an issued policy."
+      },
+      {
+        "id": "review-gates",
+        "label": "Two different reviews",
+        "focus": ["validate", "review1", "recommend", "present_choice", "review2"],
+        "note": "Review 1 gates a flagged record; Review 2 gates policy issuance on the applicant's own choice — never the same decision."
+      },
+      {
+        "id": "resilience",
+        "label": "Fallback and retry",
+        "focus": ["verify", "fallback", "present_choice", "round2", "review2"],
+        "note": "See what happens when the model fails, or the applicant rejects the whole panel."
+      }
+    ],
+    "output": "chatbot-pipeline.html"
+  },
+  "lanes": [
+    { "id": "review", "label": "Advisor Review" },
+    { "id": "ui", "label": "Applicant Chat" },
+    { "id": "exceptions", "label": "Fallback & Retry", "variant": "exception" },
+    { "id": "assessment", "label": "Intake & Assessment" },
+    { "id": "agent", "label": "Recommendation Agent" },
+    { "id": "tools", "label": "Plan Tool Registry" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Intake", "fromCol": 0, "toCol": 1 },
+    { "id": "gate", "label": "Validate + gate", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "loop", "label": "Price + tool-call loop + verify", "fromCol": 3, "toCol": 4, "variant": "emphasis" },
+    { "id": "decision", "label": "Present + decide", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "agent_loop", "label": "≤8 tool calls, budget-forced answer", "lane": "agent", "fromCol": 3, "toCol": 4, "variant": "emphasis" }
+  ],
+  "mainPath": ["applicant", "chat", "validate", "recommend", "verify", "present_choice", "review2"],
+  "nodes": [
+    { "id": "applicant", "lane": "ui", "col": 0, "type": "external", "label": "Applicant", "sublabel": "types a message", "width": 128 },
+    { "id": "chat", "lane": "ui", "col": 1, "type": "frontend", "label": "Chat Thread", "sublabel": "intake + cards + Q&A", "width": 128 },
+    { "id": "validate", "lane": "assessment", "col": 2, "type": "backend", "label": "Validate & Classify", "sublabel": "constraint rules · cohort", "tag": "deterministic", "width": 132 },
+    { "id": "review1", "lane": "review", "col": 2, "type": "security", "label": "Record Review", "sublabel": "flagged records only", "tag": "Review 1", "width": 132 },
+    { "id": "recommend", "lane": "agent", "col": 3, "type": "backend", "label": "Recommendation Agent", "sublabel": "price all plans → tool loop", "width": 132 },
+    { "id": "tools", "lane": "tools", "col": 3, "type": "messagebus", "label": "Plan Tool Registry", "sublabel": "read-only catalogue queries", "tag": "closed vocab", "width": 132 },
+    { "id": "verify", "lane": "agent", "col": 4, "type": "security", "label": "Verify & Gate", "sublabel": "citation + eligibility check", "width": 132 },
+    { "id": "fallback", "lane": "exceptions", "col": 4, "type": "messagebus", "label": "Deterministic Fallback", "sublabel": "no key · 429 · budget spent", "tag": "still presented", "width": 156 },
+    { "id": "present_choice", "lane": "ui", "col": 5, "type": "frontend", "label": "Shortlist & Choice", "sublabel": "3 plans posted, applicant decides", "width": 168 },
+    { "id": "review2", "lane": "review", "col": 5, "type": "security", "label": "Advisor Review", "sublabel": "quality check, or gates policy", "tag": "Review 1.5 / 2", "width": 168 },
+    { "id": "round2", "lane": "exceptions", "col": 5, "type": "messagebus", "label": "Round 2 Retry", "sublabel": "retries with objection noted", "tag": "≤3 rounds", "width": 168 }
+  ],
+  "edges": [
+    { "id": "applicant-chat", "from": "applicant", "to": "chat", "variant": "default", "label": "message" },
+    { "id": "chat-validate", "from": "chat", "to": "validate", "variant": "emphasis", "label": "submit" },
+    { "id": "validate-recommend", "from": "validate", "to": "recommend", "variant": "emphasis", "label": "gate: auto" },
+    { "id": "validate-review1", "from": "validate", "to": "review1", "variant": "security", "role": "branch", "label": "gate: flagged" },
+    { "id": "review1-recommend", "from": "review1", "to": "recommend", "variant": "dashed", "role": "return", "label": "approved → schedule" },
+    { "id": "recommend-tools", "from": "recommend", "to": "tools", "variant": "default", "label": "tool call ↔ validated observation" },
+    { "id": "recommend-verify", "from": "recommend", "to": "verify", "variant": "emphasis", "label": "shortlist proposed" },
+    { "id": "verify-present", "from": "verify", "to": "present_choice", "variant": "emphasis", "label": "grounded → present" },
+    { "id": "verify-fallback", "from": "verify", "to": "fallback", "variant": "security", "role": "error", "label": "fails / no model" },
+    { "id": "fallback-present", "from": "fallback", "to": "present_choice", "variant": "dashed", "label": "still shown" },
+    { "id": "present-review2", "from": "present_choice", "to": "review2", "variant": "default", "label": "applicant picks" },
+    { "id": "present-round2", "from": "present_choice", "to": "round2", "variant": "dashed", "role": "branch", "label": "none of these fit" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Two Reviews, Never One", "items": ["Review 1 gates a flagged record before pricing ever starts", "Review 1.5 is a parallel quality check — it never withholds the card", "Review 2 gates policy issuance on the applicant's OWN choice"] },
+    { "dot": "emerald", "title": "Grounded, Not Guessed", "items": ["The agent supplies no numbers of its own — every figure traces to a tool observation", "A closed vocabulary per tool: plan ids, need ids, benefit classes, cost scenarios", "The same read-only registry answers in-chat questions once the panel is shown", "A citation failure swaps in the already-vetted member reasoning"] },
+    { "dot": "rose", "title": "Runs With No Model", "items": ["No API key, a rate limit, or an exhausted call budget all fall back to deterministic ranking", "The applicant still gets a card — confidence low, flagged for review", "Round 2 re-runs the loop with the objection on record, capped at 3 tries"] }
+  ]
+}
