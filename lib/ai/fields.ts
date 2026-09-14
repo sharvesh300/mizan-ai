@@ -13,7 +13,7 @@ import {
   type PriorityTag,
   type RelationshipType,
 } from "@/db/schema";
-import type { IntakeDraft } from "@/lib/intake";
+import { saysNothing, type IntakeDraft } from "@/lib/intake";
 import { STEPS } from "@/lib/intake-chat";
 
 /**
@@ -159,9 +159,17 @@ const VALIDATORS: Record<string, Validator> = {
   },
 
   "condition.raw_text": (draft, value, rawSpan) => {
-    // "none" / empty signals no conditions.
+    // "none" / empty signals no conditions. `saysNothing` (not a narrow
+    // `/^none$/i`) is load-bearing here: `replayFromExtractions`
+    // (lib/ai/intake-session.ts) re-validates a "normalised" row through
+    // THIS validator using the STORED valueText — which for the scripted
+    // "None of these" checkbox is the sentinel "none declared", never the
+    // literal word "none". An exact-match check let that sentinel fall
+    // through on replay and re-added "None of these" itself as a phantom
+    // condition on every later turn. Checking both the semantic value and
+    // the applicant's own words catches either producer.
     const rawText = (rawSpan.trim() || value.trim());
-    if (!rawText || /^none$/i.test(value.trim())) {
+    if (!rawText || saysNothing(value.trim()) || saysNothing(rawSpan.trim())) {
       return ok({ ...draft, conditions: [] }, "none declared");
     }
     // Idempotent: don't append a condition already on the draft.
@@ -186,9 +194,12 @@ const VALIDATORS: Record<string, Validator> = {
   },
 
   "need.benefit_class": (draft, value, rawSpan) => {
-    // Empty / "none" / "nothing specific" signals no anticipated needs.
+    // Empty / "none" / "nothing specific" signals no anticipated needs — same
+    // `saysNothing` fix and the same reason as `condition.raw_text` above:
+    // the scripted "Nothing specific" checkbox replays through here as the
+    // sentinel valueText "none stated", not the literal words.
     const rawText = (rawSpan.trim() || value.trim());
-    if (!rawText || /^(none|nothing specific|no)$/i.test(value.trim())) {
+    if (!rawText || saysNothing(value.trim()) || saysNothing(rawSpan.trim())) {
       return ok({ ...draft, needs: [] }, "none stated");
     }
     const benefitClass = (benefitClassEnum as readonly string[]).includes(value.trim().toLowerCase())

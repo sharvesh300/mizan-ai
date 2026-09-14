@@ -349,6 +349,19 @@ export async function persistAssessment(
  * Assessing twice would write a second cohort and a second queue item for the
  * same record, so a re-run is explicit (`force`) and belongs to the advisor's
  * re-classify action, not to an accidental double submit.
+ *
+ * A clean `auto` gate means the record needs no one's decision before quoting
+ * can start, so recommendation is SCHEDULED right here — not run inline. The
+ * agent's tool-call loop can take several model round-trips, and the
+ * applicant waiting on this response should not wait on that too; `after()`
+ * runs it once the response has gone out (see `scheduleRecommendation` in
+ * lib/ai/recommendation-session.ts, which also posts the chat follow-up once
+ * it resolves). A gated record does NOT schedule it; recommendation starts
+ * later, from `approveAssessment`/`editAssessment`
+ * (app/applications/[id]/actions.ts), once a person has cleared the gate this
+ * function opened. The import is dynamic to avoid a module cycle —
+ * lib/ai/recommendation-session.ts imports `loadAssessmentInputs` from this
+ * file.
  */
 export async function validateAndClassify(
   applicationId: string,
@@ -372,5 +385,11 @@ export async function validateAndClassify(
 
   const outcome = await runAssessment(inputs);
   await persistAssessment(applicationId, outcome, row?.status ?? "submitted");
+
+  if (outcome.gate === "auto") {
+    const { scheduleRecommendation } = await import("@/lib/ai/recommendation-session");
+    scheduleRecommendation(applicationId);
+  }
+
   return outcome;
 }

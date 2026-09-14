@@ -277,6 +277,22 @@ export const isQuestionnairePayload = (payload: unknown): payload is Questionnai
   typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "questionnaire";
 
 /**
+ * What the chat page needs to know a shortlist is waiting — the plan cards
+ * themselves are re-read live from `quote`/`recommendation` (getQuotes /
+ * getRecommendation, lib/queries.ts) rather than frozen onto the payload, the
+ * same reasoning `applicationId` alone carries on the "sent" message below.
+ */
+export type RecommendationShortlistPayload = {
+  kind: "recommendation_shortlist";
+  round: number;
+  recommendationId: string;
+  applicationId: string;
+};
+
+export const isRecommendationShortlistPayload = (payload: unknown): payload is RecommendationShortlistPayload =>
+  typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "recommendation_shortlist";
+
+/**
  * Post the assistant's reply and open a question row per thing it asked.
  *
  * The questionnaire itself rides on the message payload, so the form the

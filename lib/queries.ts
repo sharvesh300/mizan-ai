@@ -3,7 +3,7 @@
 // (cohort, flags, reviewer decisions, confidence), and the broker helpers
 // return the whole record.
 
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   aiDecision,
@@ -18,6 +18,7 @@ import {
   assessmentFlag,
   benefitLedger,
   conversation,
+  conversationAction,
   conversationQuestion,
   message,
   person,
@@ -30,6 +31,7 @@ import {
   reviewDecision,
   reviewTask,
   servicingEvent,
+  type ConfidenceLevel,
 } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
@@ -246,6 +248,144 @@ export async function getClassificationDecision(applicationId: string) {
 }
 
 /**
+ * BROKER ONLY. The recommendation agent's own account of its shortlist — the
+ * criteria and weights it chose, the scenario and its provenance, the citation
+ * check, and why this one needs a human. Same shape as
+ * `getClassificationDecision`, one decisionType over.
+ */
+export async function getRecommendationDecision(applicationId: string) {
+  const [row] = await db
+    .select()
+    .from(aiDecision)
+    .where(and(eq(aiDecision.subjectId, applicationId), eq(aiDecision.decisionType, "plan_recommendation")))
+    .orderBy(desc(aiDecision.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * A recommendation review task is **Review 2** — the applicant's own choice,
+ * the one that gates policy issuance (doc §2.2) — iff the applicant has
+ * actually picked a plan off it: a `select_plan` conversation_action whose
+ * `subjectId` is this recommendation (written by `pickPlan`,
+ * app/applications/new/actions.ts). Any other recommendation task is
+ * **Review 1.5**, the pre-presentation quality check that now runs in
+ * parallel with the applicant seeing the card (doc §3.7's gate) rather than
+ * ahead of it — approving one must never issue a policy nobody chose.
+ */
+export async function isSelectionReview(recommendationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(
+      and(
+        eq(conversationAction.actionType, "select_plan"),
+        eq(conversationAction.subjectType, "recommendation"),
+        eq(conversationAction.subjectId, recommendationId),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/** One plan on the applicant's panel, with everything the chat card shows — the same factual fields `PlanComparison` (app/applications/[id]/page.tsx) already renders, so the two views never disagree. */
+export type ActiveShortlistPlan = {
+  planId: string;
+  name: string;
+  annualPremium: number;
+  deductible: number;
+  outpatientCopayPct: number;
+  annualLimit: number;
+  maternityCovered: boolean;
+  maternityWaitingPeriodMonths: number | null;
+  maternityLimit: number | null;
+  chronicCovered: boolean;
+  chronicWaitingPeriodMonths: number | null;
+  network: string;
+  /** The system's top pick this round — everything else is still a real, chooseable option. */
+  recommended: boolean;
+};
+
+/**
+ * What the applicant's chat should currently show for "the plan we'd
+ * suggest" — every eligible plan on the panel with its own terms, which one
+ * is the system's pick, whether a plan has already been chosen off it, and
+ * whether a newer round has been asked for (`rejectShortlist`,
+ * app/applications/new/actions.ts) and has not landed yet.
+ *
+ * Deliberately factual, not the agent's own prose, for every plan but the
+ * recommended one: `recommendation_rejection.reason` is broker-register text
+ * (it names the cohort — see docs/recommendation_architecture.md §6, "never
+ * rendered here: the cohort...") and does not belong in the applicant's
+ * thread. The same deductible/co-pay/limit/maternity/network fields the
+ * broker's own `PlanComparison` already shows are safe for both audiences.
+ *
+ * The `pendingRound` check exists because superseding the old live row only
+ * happens when the NEW round's `persistRecommendation` commits — between
+ * `rejectShortlist` writing the objection and that commit, the old
+ * recommendation is still the "live" one by every other test. Without this,
+ * the chat would keep showing a card the applicant already said didn't fit,
+ * as if it were still open for a decision.
+ */
+export async function getActiveShortlist(applicationId: string): Promise<{
+  recommendationId: string;
+  round: number;
+  plans: ActiveShortlistPlan[];
+  memberReasoning: string;
+  selected: boolean;
+  selectedPlanId: string | null;
+  pendingRound: boolean;
+} | null> {
+  const reco = await getRecommendation(applicationId);
+  if (!reco) return null;
+
+  const [selected, pendingRoundRows, quotes] = await Promise.all([
+    isSelectionReview(reco.recommendation.id),
+    db
+      .select({ id: conversationAction.id })
+      .from(conversationAction)
+      .where(
+        and(
+          eq(conversationAction.actionType, "reject_shortlist"),
+          eq(conversationAction.subjectType, "application"),
+          eq(conversationAction.subjectId, applicationId),
+          gt(conversationAction.createdAt, reco.recommendation.createdAt),
+        ),
+      )
+      .limit(1),
+    getQuotes(applicationId),
+  ]);
+
+  const plans: ActiveShortlistPlan[] = quotes
+    .filter((q) => q.eligible)
+    .map((q) => ({
+      planId: q.plan.id,
+      name: q.plan.name,
+      annualPremium: q.plan.annualPremium,
+      deductible: q.plan.deductible,
+      outpatientCopayPct: q.plan.outpatientCopayPct,
+      annualLimit: q.plan.annualLimit,
+      maternityCovered: q.plan.maternityCovered,
+      maternityWaitingPeriodMonths: q.plan.maternityWaitingPeriodMonths,
+      maternityLimit: q.plan.maternityLimit,
+      chronicCovered: q.plan.chronicCovered,
+      chronicWaitingPeriodMonths: q.plan.chronicWaitingPeriodMonths,
+      network: q.plan.network,
+      recommended: q.plan.id === reco.plan.id,
+    }));
+
+  return {
+    recommendationId: reco.recommendation.id,
+    round: reco.recommendation.version,
+    plans,
+    memberReasoning: reco.recommendation.memberReasoning,
+    selected,
+    selectedPlanId: selected ? reco.plan.id : null,
+    pendingRound: pendingRoundRows.length > 0,
+  };
+}
+
+/**
  * What an advisor has said TO the applicant about this application.
  *
  * Deliberately narrow: `action`, the member-register message and when it was
@@ -385,6 +525,14 @@ export async function listOpenReviewTasks() {
  * saying why a person is needed — which is what lets the page group them by
  * the KIND of attention they want rather than listing them all as equal.
  */
+/** `recommendation.confidence` is a number (see CONFIDENCE_VALUE in lib/ai/recommendation-session.ts); band it back for the same badge the assessment side uses. */
+function confidenceBand(value: number | null): ConfidenceLevel | null {
+  if (value == null) return null;
+  if (value >= 0.9) return "high";
+  if (value >= 0.6) return "medium";
+  return "low";
+}
+
 export async function listQueue() {
   const tasks = await db
     .select({ task: reviewTask, assignee: { id: appUser.id, fullName: appUser.fullName } })
@@ -397,9 +545,60 @@ export async function listQueue() {
   const applicationIds = tasks
     .filter(({ task }) => task.subjectType === "application")
     .map(({ task }) => task.subjectId);
+  const recommendationIds = tasks
+    .filter(({ task }) => task.subjectType === "recommendation")
+    .map(({ task }) => task.subjectId);
+
+  const recommendationRows = recommendationIds.length
+    ? await db
+        .select({ recommendation, plan, application, personName: person.fullName })
+        .from(recommendation)
+        .innerJoin(plan, eq(recommendation.planId, plan.id))
+        .innerJoin(application, eq(recommendation.applicationId, application.id))
+        .innerJoin(person, eq(application.personId, person.id))
+        .where(inArray(recommendation.id, recommendationIds))
+    : [];
+  const byRecommendation = new Map(recommendationRows.map((row) => [row.recommendation.id, row]));
+
+  // Same test as `isSelectionReview`, batched: which of these recommendation
+  // tasks are Review 2 (the applicant already picked) vs. Review 1.5 (a
+  // quality check the applicant may not have acted on yet) — the queue row
+  // is what tells an advisor which decision they are actually making.
+  const selections = recommendationIds.length
+    ? await db
+        .select({ subjectId: conversationAction.subjectId })
+        .from(conversationAction)
+        .where(
+          and(
+            eq(conversationAction.actionType, "select_plan"),
+            eq(conversationAction.subjectType, "recommendation"),
+            inArray(conversationAction.subjectId, recommendationIds),
+          ),
+        )
+    : [];
+  const selectionReviewIds = new Set(selections.map((s) => s.subjectId));
+  const reviewKindFor = (recommendationId: string) => (selectionReviewIds.has(recommendationId) ? ("selection" as const) : ("quality" as const));
 
   if (applicationIds.length === 0) {
-    return tasks.map((row) => ({ ...row, subject: null }));
+    return tasks.map((row) => {
+      if (row.task.subjectType !== "recommendation") return { ...row, subject: null };
+      const found = byRecommendation.get(row.task.subjectId);
+      if (!found) return { ...row, subject: null };
+      return {
+        ...row,
+        subject: {
+          kind: "recommendation" as const,
+          applicationId: found.application.id,
+          reference: found.application.reference,
+          personName: found.personName,
+          planName: found.plan.name,
+          status: found.recommendation.status,
+          confidence: confidenceBand(found.recommendation.confidence),
+          uncertaintyReason: found.recommendation.uncertaintyReason,
+          reviewKind: reviewKindFor(row.task.subjectId),
+        },
+      };
+    });
   }
 
   const [applications, assessments, decisions] = await Promise.all([
@@ -449,6 +648,25 @@ export async function listQueue() {
   const byApplication = new Map(applications.map((row) => [row.id, row]));
 
   return tasks.map((row) => {
+    if (row.task.subjectType === "recommendation") {
+      const found = byRecommendation.get(row.task.subjectId);
+      return {
+        ...row,
+        subject: found
+          ? {
+              kind: "recommendation" as const,
+              applicationId: found.application.id,
+              reference: found.application.reference,
+              personName: found.personName,
+              planName: found.plan.name,
+              status: found.recommendation.status,
+              confidence: confidenceBand(found.recommendation.confidence),
+              uncertaintyReason: found.recommendation.uncertaintyReason,
+              reviewKind: reviewKindFor(row.task.subjectId),
+            }
+          : null,
+      };
+    }
     if (row.task.subjectType !== "application") return { ...row, subject: null };
     const app = byApplication.get(row.task.subjectId);
     const assessed = latestAssessment.get(row.task.subjectId);
@@ -458,6 +676,7 @@ export async function listQueue() {
       ...row,
       subject: app
         ? {
+            kind: "application" as const,
             reference: app.reference,
             personName: app.personName,
             age: app.age,

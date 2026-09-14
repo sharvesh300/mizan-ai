@@ -44,15 +44,20 @@ export const toneDot: Record<Tone, string> = {
 // Application lifecycle
 // ---------------------------------------------------------------------------
 
-/** The happy path, in order. Drives the progress stepper. */
+/**
+ * The happy path, in order — only statuses a real code path actually writes.
+ * `quoted` and `approved` never do (pricing and the recommendation are one
+ * transaction — see `persistRecommendation`, lib/ai/recommendation-session.ts
+ * — and Review 2's approve verb jumps straight to `policy_issued`), so they
+ * are folded into the milestone that subsumes them rather than kept as
+ * permanently-unreachable steps. Drives the progress stepper.
+ */
 export const APPLICATION_JOURNEY = [
   "in_intake",
   "submitted",
   "assessed",
-  "quoted",
   "recommended",
-  "in_review",
-  "approved",
+  "plan_selected",
   "policy_issued",
 ] as const satisfies readonly ApplicationStatus[];
 
@@ -65,10 +70,11 @@ export const applicationStatusLabel: Record<ApplicationStatus, string> = {
   submitted: "Submitted",
   confirmed: "Confirmed",
   assessed: "Assessed",
-  quoted: "Quoted",
-  recommended: "Recommended",
+  quoted: "Plans ready",
+  recommended: "Plans ready",
   in_review: "With an advisor",
-  approved: "Approved",
+  approved: "Plan chosen",
+  plan_selected: "Plan chosen",
   policy_issued: "Policy active",
   withdrawn: "Withdrawn",
   declined: "Declined",
@@ -81,21 +87,39 @@ export const applicationStatusTone: Record<ApplicationStatus, Tone> = {
   submitted: "info",
   confirmed: "info",
   assessed: "info",
-  quoted: "info",
+  quoted: "brand",
   recommended: "brand",
   in_review: "warning",
-  approved: "success",
+  approved: "brand",
+  plan_selected: "brand",
   policy_issued: "success",
   withdrawn: "neutral",
   declined: "danger",
   expired: "neutral",
 };
 
-/** 0-based index into APPLICATION_JOURNEY, or null for draft/terminal states. */
+/**
+ * 0-based index into APPLICATION_JOURNEY, or null for draft/terminal states.
+ *
+ * Every status maps onto a milestone that has genuinely happened by then —
+ * `in_review` parks on Submitted (Review 1 only fires when assessment ran but
+ * was gated, so nothing past Submitted is real yet), `confirmed`/`quoted`
+ * share `submitted`/`recommended`'s position, and `approved` (Review 2's
+ * verbs resolve straight to `policy_issued` today, but the mapping stays
+ * honest if that ever changes) shares `plan_selected`'s.
+ */
 export function journeyStep(status: ApplicationStatus): number | null {
   if (status === "draft" || TERMINAL.includes(status)) return null;
-  // `confirmed` is a sub-step of `submitted` and shares its position.
-  const normalised = status === "confirmed" ? "submitted" : status;
+  const normalised =
+    status === "confirmed"
+      ? "submitted"
+      : status === "in_review"
+        ? "submitted"
+        : status === "quoted"
+          ? "recommended"
+          : status === "approved"
+            ? "plan_selected"
+            : status;
   const i = APPLICATION_JOURNEY.indexOf(normalised as (typeof APPLICATION_JOURNEY)[number]);
   return i === -1 ? null : i;
 }
@@ -106,6 +130,11 @@ export function journeyProgress(status: ApplicationStatus): number {
   return Math.round(((step + 1) / APPLICATION_JOURNEY.length) * 100);
 }
 
+/** True only at Review 1 — the record itself is gated, before anything downstream can run. */
+export function isWithAdvisor(status: ApplicationStatus): boolean {
+  return status === "in_review";
+}
+
 /** What the applicant is waiting on, in their own register. */
 export const applicationStatusHint: Record<ApplicationStatus, string> = {
   draft: "Not sent yet — pick up where you left off whenever you like.",
@@ -114,9 +143,10 @@ export const applicationStatusHint: Record<ApplicationStatus, string> = {
   confirmed: "Your details are confirmed and we are matching plans.",
   assessed: "We have looked at your health and cover needs.",
   quoted: "We have priced all three plans for you.",
-  recommended: "We have picked a plan for you — an advisor is checking it over.",
+  recommended: "We've picked a plan for you — have a look and choose.",
   in_review: "An advisor is reviewing this personally. No action needed from you.",
   approved: "Approved. Your policy is being issued.",
+  plan_selected: "An advisor is signing off your choice.",
   policy_issued: "Your cover is active.",
   withdrawn: "This application was withdrawn.",
   // The advisor's own message to them sits directly below this on the page —
