@@ -1,0 +1,393 @@
+{
+  "meta": {
+    "currency": "AED",
+    "period": "annual",
+    "note": "All data is fictional and created for a build challenge. Not real insurance products or people.",
+    "version": 3
+  },
+  "plans": [
+    {
+      "id": "plan_a",
+      "name": "Essential",
+      "annual_premium": 4200,
+      "deductible": 1500,
+      "network": "restricted",
+      "network_note": "Basic clinics and select general hospitals; no premium/private hospitals",
+      "outpatient_copay_pct": 30,
+      "maternity": {
+        "covered": false
+      },
+      "chronic_preexisting": {
+        "covered": false
+      },
+      "annual_limit": 150000,
+      "dental_optical": "none"
+    },
+    {
+      "id": "plan_b",
+      "name": "Balanced",
+      "annual_premium": 8900,
+      "deductible": 500,
+      "network": "standard",
+      "network_note": "Standard clinics and hospitals; excludes top-tier private hospitals",
+      "outpatient_copay_pct": 20,
+      "maternity": {
+        "covered": true,
+        "waiting_period_months": 12,
+        "limit": 10000
+      },
+      "chronic_preexisting": {
+        "covered": true,
+        "waiting_period_months": 6
+      },
+      "annual_limit": 500000,
+      "dental_optical": "basic"
+    },
+    {
+      "id": "plan_c",
+      "name": "Comprehensive",
+      "annual_premium": 16500,
+      "deductible": 0,
+      "network": "wide",
+      "network_note": "Wide network including premium and private hospitals",
+      "outpatient_copay_pct": 10,
+      "maternity": {
+        "covered": true,
+        "waiting_period_months": 3,
+        "limit": 25000
+      },
+      "chronic_preexisting": {
+        "covered": true,
+        "waiting_period_months": 0
+      },
+      "annual_limit": 1500000,
+      "dental_optical": "full"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "P1",
+      "label": "Budget-driven young professional",
+      "age": 26,
+      "marital_status": "single",
+      "smoker": false,
+      "conditions": [],
+      "budget": "low",
+      "stated_priorities": [
+        "lowest premium",
+        "basic cover acceptable"
+      ],
+      "near_term_needs": [],
+      "approved_plan_id": "plan_a",
+      "policy_inception": "2026-01-01"
+    },
+    {
+      "id": "P2",
+      "label": "Planning a family this year",
+      "age": 31,
+      "marital_status": "married",
+      "smoker": false,
+      "conditions": [],
+      "budget": "moderate",
+      "stated_priorities": [
+        "usable maternity cover this year",
+        "sensible cost"
+      ],
+      "near_term_needs": [
+        "maternity within 12 months"
+      ],
+      "approved_plan_id": "plan_c",
+      "policy_inception": "2026-01-01"
+    },
+    {
+      "id": "P3",
+      "label": "Older applicant with managed chronic conditions",
+      "age": 58,
+      "marital_status": "married",
+      "smoker": false,
+      "conditions": [
+        "type 2 diabetes (managed)",
+        "hypertension (managed)"
+      ],
+      "budget": "moderate",
+      "stated_priorities": [
+        "ongoing coverage for existing conditions",
+        "cost matters"
+      ],
+      "near_term_needs": [
+        "continuous chronic condition management"
+      ],
+      "approved_plan_id": "plan_b",
+      "policy_inception": "2026-01-01"
+    },
+    {
+      "id": "P4",
+      "label": "Healthy mid-career, values access",
+      "age": 40,
+      "marital_status": "married",
+      "smoker": false,
+      "conditions": [],
+      "budget": "comfortable",
+      "stated_priorities": [
+        "good network access",
+        "reasonable outpatient terms"
+      ],
+      "near_term_needs": [],
+      "approved_plan_id": "plan_b",
+      "policy_inception": "2026-01-01"
+    },
+    {
+      "id": "P5",
+      "label": "Older applicant, high needs",
+      "age": 63,
+      "marital_status": "married",
+      "smoker": false,
+      "conditions": [
+        "coronary artery disease (prior stent)",
+        "type 2 diabetes"
+      ],
+      "budget": "not primary concern",
+      "stated_priorities": [
+        "comprehensive coverage",
+        "wide hospital access"
+      ],
+      "near_term_needs": [
+        "ongoing specialist and cardiac care"
+      ],
+      "approved_plan_id": "plan_c",
+      "policy_inception": "2026-01-01"
+    }
+  ],
+  "provider_tiers": {
+    "note": "Which tiers each plan's network admits. Use with claim.provider_tier.",
+    "restricted": [
+      "in_network_clinic",
+      "general_hospital"
+    ],
+    "standard": [
+      "in_network_clinic",
+      "general_hospital",
+      "private_hospital"
+    ],
+    "wide": [
+      "in_network_clinic",
+      "general_hospital",
+      "private_hospital",
+      "top_tier_private_hospital",
+      "premium_private_hospital"
+    ]
+  },
+  "adjudication_rules": {
+    "deductible_before_copay": true,
+    "copay_applies_to": "inpatient and outpatient alike",
+    "sublimit_caps": "plan_payment",
+    "sublimit_applied_after_copay": true,
+    "denied_claims_consume_deductible": false,
+    "preauth_mutates_ledger": false,
+    "policy_month_base": 0,
+    "undefined_in_this_dataset": [
+      "geographic scope / treatment outside the UAE"
+    ]
+  },
+  "reason_codes": [
+    "covered",
+    "policy_not_active",
+    "benefit_excluded",
+    "waiting_period_not_elapsed",
+    "provider_out_of_network",
+    "sublimit_exhausted",
+    "annual_limit_reached",
+    "insufficient_data"
+  ],
+  "benefit_classes": {
+    "general": {
+      "waiting_period": null,
+      "sublimit": null
+    },
+    "maternity": {
+      "waiting_period": "plan.maternity.waiting_period_months",
+      "sublimit": "plan.maternity.limit"
+    },
+    "chronic_preexisting": {
+      "waiting_period": "plan.chronic_preexisting.waiting_period_months",
+      "sublimit": null
+    },
+    "dental_optical": {
+      "waiting_period": null,
+      "sublimit": null
+    }
+  },
+  "ledger_template": {
+    "policy_id": null,
+    "profile_id": null,
+    "plan_id": null,
+    "inception_date": "2026-01-01",
+    "status": "active",
+    "deductible_met": 0,
+    "annual_paid": 0,
+    "sublimit_used": {
+      "maternity": 0,
+      "dental_optical": 0
+    },
+    "events": []
+  },
+  "servicing_events": [
+    {
+      "id": "CLM-1",
+      "profile_id": "P1",
+      "plan_id": "plan_a",
+      "kind": "claim",
+      "policy_month": 5,
+      "benefit_class": "general",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 3200,
+      "event": "Fractured wrist — urgent care, X-ray, casting"
+    },
+    {
+      "id": "CLM-6",
+      "profile_id": "P1",
+      "plan_id": "plan_a",
+      "kind": "claim",
+      "policy_month": 8,
+      "benefit_class": "general",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 1800,
+      "event": "Physiotherapy following the wrist fracture"
+    },
+    {
+      "id": "PRE-1",
+      "profile_id": "P2",
+      "plan_id": "plan_c",
+      "kind": "preauth",
+      "policy_month": 6,
+      "benefit_class": "maternity",
+      "setting": "inpatient",
+      "provider_tier": "private_hospital",
+      "estimated_amount": 40000,
+      "event": "Planned delivery at a private hospital"
+    },
+    {
+      "id": "CLM-2",
+      "profile_id": "P2",
+      "plan_id": "plan_c",
+      "kind": "claim",
+      "policy_month": 9,
+      "benefit_class": "maternity",
+      "setting": "inpatient",
+      "provider_tier": "private_hospital",
+      "billed_amount": 40000,
+      "event": "Maternity — prenatal care and delivery"
+    },
+    {
+      "id": "CLM-7",
+      "profile_id": "P2",
+      "plan_id": "plan_c",
+      "kind": "claim",
+      "policy_month": 11,
+      "benefit_class": "maternity",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 3000,
+      "event": "Postnatal follow-up consultations"
+    },
+    {
+      "id": "CLM-3",
+      "profile_id": "P3",
+      "plan_id": "plan_b",
+      "kind": "claim",
+      "policy_month": 4,
+      "benefit_class": "chronic_preexisting",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 2800,
+      "event": "Endocrinology consult, HbA1c, medication review"
+    },
+    {
+      "id": "APP-1",
+      "profile_id": "P3",
+      "plan_id": "plan_b",
+      "kind": "appeal",
+      "policy_month": 4,
+      "contests": "CLM-3",
+      "applicant_claim": "Diabetes was only picked up at a check-up after the policy started; it should not count as pre-existing.",
+      "evidence_attached": [],
+      "on_file": "Type 2 diabetes declared as an existing condition at intake, stable and managed on medication at time of application."
+    },
+    {
+      "id": "CLM-8",
+      "profile_id": "P3",
+      "plan_id": "plan_b",
+      "kind": "claim",
+      "policy_month": 7,
+      "benefit_class": "chronic_preexisting",
+      "setting": "outpatient",
+      "provider_tier": "in_network_clinic",
+      "billed_amount": 2600,
+      "event": "Follow-up endocrinology consult and repeat labs"
+    },
+    {
+      "id": "CLM-4",
+      "profile_id": "P4",
+      "plan_id": "plan_b",
+      "kind": "claim",
+      "policy_month": 7,
+      "benefit_class": "general",
+      "setting": "outpatient",
+      "provider_tier": "top_tier_private_hospital",
+      "billed_amount": 6000,
+      "event": "Physiotherapy following a shoulder injury"
+    },
+    {
+      "id": "APP-2",
+      "profile_id": "P4",
+      "plan_id": "plan_b",
+      "kind": "appeal",
+      "policy_month": 7,
+      "contests": "CLM-4",
+      "applicant_claim": "The physio clinic is inside the hospital building but is a separate practice with its own licence.",
+      "evidence_attached": [
+        "Provider registration: Gulf Physiotherapy Centre LLC, independently licensed outpatient facility, registered at standard network tier, leased suite within the hospital building."
+      ],
+      "on_file": null
+    },
+    {
+      "id": "PRE-2",
+      "profile_id": "P4",
+      "plan_id": "plan_b",
+      "kind": "preauth",
+      "policy_month": 9,
+      "benefit_class": "general",
+      "setting": "inpatient",
+      "provider_tier": "private_hospital",
+      "estimated_amount": 28000,
+      "event": "Planned shoulder arthroscopy"
+    },
+    {
+      "id": "CLM-5",
+      "profile_id": "P5",
+      "plan_id": "plan_c",
+      "kind": "claim",
+      "policy_month": 3,
+      "benefit_class": "chronic_preexisting",
+      "setting": "inpatient",
+      "provider_tier": "premium_private_hospital",
+      "billed_amount": 180000,
+      "event": "Cardiac admission — chest pain, angiography, stent revision"
+    },
+    {
+      "id": "CLM-9",
+      "profile_id": "P5",
+      "plan_id": "plan_c",
+      "kind": "reimbursement",
+      "policy_month": 6,
+      "benefit_class": "chronic_preexisting",
+      "setting": "outpatient",
+      "provider_tier": "unknown_foreign",
+      "geography": "abroad",
+      "amount_paid_by_member": 4500,
+      "event": "Cardiac follow-up and repeat medication while travelling overseas; paid out of pocket, receipts attached"
+    }
+  ]
+}
