@@ -104,7 +104,19 @@ export type ReviewSubject = (typeof reviewSubjectEnum)[number];
 export const reviewStatusEnum = ["open", "in_progress", "resolved"] as const;
 export type ReviewStatus = (typeof reviewStatusEnum)[number];
 
-export const reviewActionEnum = ["approve", "edit", "override", "uphold", "overturn", "request_info"] as const;
+// `reject` is additive to the baseline: an advisor closing an application
+// down is a real decision and needs its own verb, distinct from `override`
+// (which replaces the system's answer with a different one). SQLite stores
+// these as text, so widening the tuple is a TS-only change — no migration.
+export const reviewActionEnum = [
+  "approve",
+  "edit",
+  "override",
+  "reject",
+  "uphold",
+  "overturn",
+  "request_info",
+] as const;
 export type ReviewAction = (typeof reviewActionEnum)[number];
 
 export const policyStatusEnum = ["active", "lapsed", "cancelled"] as const;

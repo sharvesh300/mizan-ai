@@ -64,12 +64,19 @@ export const PROMPT_VERSION = "intake-v2";
  * Output budget per call. It has to be set explicitly: left unset the client
  * asks for the model's full context window, which OpenRouter rejects outright
  * (402) when the account's credit cannot cover the reservation.
+ *
+ * 2048 is generous for the answer itself — a turn with reasoning switched off
+ * comes back in ~250 completion tokens. The headroom is for the fallback
+ * models, which may not honour the reasoning switch.
  */
 const MAX_OUTPUT_TOKENS = 2048;
 
 export const isAgentEnabled = () => Boolean(process.env.OPENROUTER_API_KEY);
 
-export function chatModel({ temperature = 0.4 }: { temperature?: number } = {}): ChatOpenAI {
+export function chatModel({
+  temperature = 0.4,
+  maxTokens = MAX_OUTPUT_TOKENS,
+}: { temperature?: number; maxTokens?: number } = {}): ChatOpenAI {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set — check isAgentEnabled() before calling chatModel().");
 
@@ -77,13 +84,31 @@ export function chatModel({ temperature = 0.4 }: { temperature?: number } = {}):
     apiKey,
     model: MODEL_ID,
     temperature,
-    maxTokens: MAX_OUTPUT_TOKENS,
+    maxTokens,
     // `models` is OpenRouter's fallback list. No `response_format` here: the
     // catalogue shows none of these free models supports strict
     // `structured_outputs`, and the two that accept `json_object` reject it
     // often enough that asking for it costs more turns than it saves.
     // `extractJson` does the work instead.
-    modelKwargs: { models: modelChain() },
+    //
+    // `reasoning: { enabled: false }` is load-bearing, not a tuning knob.
+    // ling-3.0-flash-fin reasons by default, and its reasoning does not fit in
+    // any budget worth paying for: measured on the real intake prompt
+    // (2026-09-14), every single call spent 2,077-2,276 tokens thinking, hit
+    // `finish_reason: "length"`, and returned either a truncated JSON object
+    // or — more often — an empty string. Both surfaced as the same bug:
+    // "model did not return usable JSON after 2 attempts".
+    //
+    //   reasoning off  ->  0 reasoning tokens, ~250 completion, 1.5-2.4s, parsed 2/2
+    //   effort: "low"  ->  1,468-2,199 reasoning tokens, still truncating
+    //   max_tokens: 0  ->  1,458-2,044 reasoning tokens, still truncating
+    //   6000-token cap ->  parses, but 2,257-2,433 tokens and 6.5-7.1s per turn
+    //
+    // Only the switch actually turns it off. The others are asking a reasoning
+    // model to think less, which it does not agree to. This work does not need
+    // chain-of-thought anyway: the model is reading a short message and filling
+    // a fixed shape, and every value it proposes is re-validated deterministically.
+    modelKwargs: { models: modelChain(), reasoning: { enabled: false } },
     configuration: {
       baseURL: "https://openrouter.ai/api/v1",
       defaultHeaders: {
@@ -149,15 +174,24 @@ export async function structuredCall<T>(input: {
   schema: z.ZodType<T>;
   temperature?: number;
 }): Promise<StructuredResult<T>> {
-  const model = chatModel({ temperature: input.temperature });
   const startedAt = Date.now();
 
   const messages = [new SystemMessage(input.system), new HumanMessage(input.user)];
   let raw = "";
   let lastError = "";
   let servedBy = MODEL_ID;
+  let truncated = false;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
+    // A truncated first attempt means the served model spent the budget
+    // somewhere we cannot see — a fallback that ignores the reasoning switch.
+    // Re-asking inside the same budget would truncate again, so the retry gets
+    // real room rather than a sterner instruction.
+    const model = chatModel({
+      temperature: input.temperature,
+      maxTokens: truncated ? MAX_OUTPUT_TOKENS * 3 : MAX_OUTPUT_TOKENS,
+    });
+
     const response = await model.invoke(
       attempt === 1
         ? messages
@@ -165,23 +199,38 @@ export async function structuredCall<T>(input: {
             ...messages,
             new HumanMessage(
               `Your previous reply could not be used: ${lastError}\n\n` +
-                `It was:\n${raw.slice(0, 1500)}\n\n` +
+                // Echoing an empty string back at the model as "your previous
+                // reply" reads as a bug to it and produces another empty one.
+                (raw.trim()
+                  ? `It was:\n${raw.slice(0, 1500)}\n\n`
+                  : `It arrived empty — you spent the whole budget before answering. Answer immediately, without thinking it through first.\n\n`) +
                 `Reply again with ONLY the JSON object, matching the shape exactly. No prose, no code fences.`,
             ),
           ],
     );
 
     raw = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
-    const metadata = response.response_metadata as { model_name?: string; model?: string } | undefined;
+    const metadata = response.response_metadata as
+      | { model_name?: string; model?: string; finish_reason?: string }
+      | undefined;
     servedBy = metadata?.model_name ?? metadata?.model ?? MODEL_ID;
+    truncated = metadata?.finish_reason === "length";
 
     try {
       const parsed = input.schema.parse(extractJson(raw));
       return { value: parsed, raw, latencyMs: Date.now() - startedAt, attempts: attempt, servedBy };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      if (truncated) lastError = `${lastError} (response was cut off at the token limit)`;
     }
   }
 
-  throw new Error(`model did not return usable JSON after 2 attempts: ${lastError}`);
+  // Everything needed to tell a truncation from a refusal from a bad parse,
+  // without having to reproduce it: the old message said only "no JSON object
+  // in model output", which is true of all three.
+  throw new Error(
+    `model did not return usable JSON after 2 attempts: ${lastError} ` +
+      `[servedBy=${servedBy} truncated=${truncated} chars=${raw.length}]` +
+      (raw.trim() ? ` first 200: ${JSON.stringify(raw.slice(0, 200))}` : " response was empty"),
+  );
 }
