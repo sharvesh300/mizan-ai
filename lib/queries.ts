@@ -6,6 +6,7 @@
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  aiDecision,
   application,
   applicationCondition,
   applicationExpectedProvider,
@@ -17,6 +18,7 @@ import {
   assessmentFlag,
   benefitLedger,
   conversation,
+  conversationQuestion,
   message,
   person,
   plan,
@@ -57,9 +59,16 @@ export async function listApplicationsForUser(userId: string) {
     .orderBy(desc(application.createdAt));
 }
 
-/** Every application, for the advisor's pipeline board. */
+/**
+ * Every application, for the advisor's pipeline board.
+ *
+ * An application can carry more than one assessment — an advisor correcting a
+ * cohort appends rather than overwrites — so the join is de-duplicated to the
+ * newest one per application. Without that, correcting a cohort makes the
+ * application appear twice in the pipeline, once under each label.
+ */
 export async function listAllApplications() {
-  return db
+  const rows = await db
     .select({
       id: application.id,
       reference: application.reference,
@@ -73,6 +82,7 @@ export async function listAllApplications() {
       ownerName: appUser.fullName,
       cohort: assessment.cohort,
       confidence: assessment.confidence,
+      assessedAt: assessment.createdAt,
       planName: plan.name,
       policyId: policy.id,
     })
@@ -82,7 +92,11 @@ export async function listAllApplications() {
     .leftJoin(assessment, eq(assessment.applicationId, application.id))
     .leftJoin(policy, eq(policy.applicationId, application.id))
     .leftJoin(plan, eq(policy.planId, plan.id))
-    .orderBy(desc(application.statusChangedAt));
+    .orderBy(desc(application.statusChangedAt), desc(assessment.createdAt));
+
+  // First row per application is its newest assessment, given the ordering.
+  const seen = new Set<string>();
+  return rows.filter((row) => (seen.has(row.id) ? false : (seen.add(row.id), true)));
 }
 
 /** The intake snapshot — safe for either audience. */
@@ -214,6 +228,71 @@ export async function getAssessment(applicationId: string) {
   return { ...row, flags };
 }
 
+/**
+ * BROKER ONLY. The system's own account of the classification it made — how
+ * sure it was, and why it thinks a person should look. The applicant sees the
+ * outcome of this, never the reasoning about how certain we were.
+ */
+export async function getClassificationDecision(applicationId: string) {
+  const [row] = await db
+    .select()
+    .from(aiDecision)
+    .where(
+      and(eq(aiDecision.subjectId, applicationId), eq(aiDecision.decisionType, "cohort_classification")),
+    )
+    .orderBy(desc(aiDecision.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * What an advisor has said TO the applicant about this application.
+ *
+ * Deliberately narrow: `action`, the member-register message and when it was
+ * said. The broker note on the same decision row is not selected here at all,
+ * so there is no way for this helper to leak one into an applicant-facing
+ * view by accident — the same reason the cohort and flag helpers are separate
+ * from the declared-record ones.
+ */
+export async function getMemberNotices(applicationId: string) {
+  const rows = await db
+    .select({
+      action: reviewDecision.action,
+      payload: reviewDecision.payload,
+      decidedAt: reviewDecision.decidedAt,
+    })
+    .from(reviewDecision)
+    .innerJoin(reviewTask, eq(reviewDecision.reviewTaskId, reviewTask.id))
+    .where(eq(reviewTask.subjectId, applicationId))
+    .orderBy(desc(reviewDecision.decidedAt));
+
+  return rows.flatMap((row) => {
+    const message = row.payload?.memberMessage;
+    if (typeof message !== "string" || !message.trim()) return [];
+    return [{ action: row.action, message, decidedAt: row.decidedAt }];
+  });
+}
+
+/** The intake conversation behind an application, if it came from chat. */
+export async function getConversationForApplication(applicationId: string) {
+  const [row] = await db
+    .select({ id: conversation.id, status: conversation.status })
+    .from(conversation)
+    .where(eq(conversation.applicationId, applicationId))
+    .orderBy(desc(conversation.startedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** How many questions are sitting open on that conversation, waiting on them. */
+export async function countOpenQuestions(conversationId: string) {
+  const rows = await db
+    .select({ id: conversationQuestion.id })
+    .from(conversationQuestion)
+    .where(and(eq(conversationQuestion.conversationId, conversationId), eq(conversationQuestion.status, "asked")));
+  return rows.length;
+}
+
 // ---------------------------------------------------------------------------
 // Policies & servicing
 // ---------------------------------------------------------------------------
@@ -295,6 +374,105 @@ export async function listOpenReviewTasks() {
     .leftJoin(appUser, eq(reviewTask.assignedToUserId, appUser.id))
     .where(ne(reviewTask.status, "resolved"))
     .orderBy(desc(reviewTask.priorityScore), asc(reviewTask.createdAt));
+}
+
+/**
+ * The queue with enough on each row to decide without opening the record.
+ *
+ * A worklist of reasons alone tells a broker that seven things are waiting and
+ * nothing about which of them is hard. Each row carries who it is about, the
+ * cohort, how sure the system was, the worst severity that fired and the line
+ * saying why a person is needed — which is what lets the page group them by
+ * the KIND of attention they want rather than listing them all as equal.
+ */
+export async function listQueue() {
+  const tasks = await db
+    .select({ task: reviewTask, assignee: { id: appUser.id, fullName: appUser.fullName } })
+    .from(reviewTask)
+    .leftJoin(appUser, eq(reviewTask.assignedToUserId, appUser.id))
+    .where(ne(reviewTask.status, "resolved"))
+    .orderBy(desc(reviewTask.priorityScore), asc(reviewTask.createdAt));
+  if (tasks.length === 0) return [];
+
+  const applicationIds = tasks
+    .filter(({ task }) => task.subjectType === "application")
+    .map(({ task }) => task.subjectId);
+
+  if (applicationIds.length === 0) {
+    return tasks.map((row) => ({ ...row, subject: null }));
+  }
+
+  const [applications, assessments, decisions] = await Promise.all([
+    db
+      .select({
+        id: application.id,
+        reference: application.reference,
+        status: application.status,
+        age: application.age,
+        budget: application.budget,
+        personName: person.fullName,
+      })
+      .from(application)
+      .innerJoin(person, eq(application.personId, person.id))
+      .where(inArray(application.id, applicationIds)),
+    db
+      .select()
+      .from(assessment)
+      .where(inArray(assessment.applicationId, applicationIds))
+      .orderBy(desc(assessment.createdAt)),
+    db
+      .select()
+      .from(aiDecision)
+      .where(
+        and(
+          inArray(aiDecision.subjectId, applicationIds),
+          eq(aiDecision.decisionType, "cohort_classification"),
+        ),
+      )
+      .orderBy(desc(aiDecision.createdAt)),
+  ]);
+
+  // Newest first above, so the first hit per application is the live one.
+  const latestAssessment = new Map<string, (typeof assessments)[number]>();
+  for (const row of assessments) if (!latestAssessment.has(row.applicationId)) latestAssessment.set(row.applicationId, row);
+
+  const latestDecision = new Map<string, (typeof decisions)[number]>();
+  for (const row of decisions) if (!latestDecision.has(row.subjectId)) latestDecision.set(row.subjectId, row);
+
+  const flags = latestAssessment.size
+    ? await db
+        .select()
+        .from(assessmentFlag)
+        .where(inArray(assessmentFlag.assessmentId, [...latestAssessment.values()].map((a) => a.id)))
+    : [];
+
+  const byApplication = new Map(applications.map((row) => [row.id, row]));
+
+  return tasks.map((row) => {
+    if (row.task.subjectType !== "application") return { ...row, subject: null };
+    const app = byApplication.get(row.task.subjectId);
+    const assessed = latestAssessment.get(row.task.subjectId);
+    const own = assessed ? flags.filter((f) => f.assessmentId === assessed.id) : [];
+
+    return {
+      ...row,
+      subject: app
+        ? {
+            reference: app.reference,
+            personName: app.personName,
+            age: app.age,
+            budget: app.budget,
+            status: app.status,
+            cohort: assessed?.cohort ?? null,
+            confidence: assessed?.confidence ?? null,
+            uncertaintyReason: latestDecision.get(row.task.subjectId)?.uncertaintyReason ?? null,
+            blocked: own.some((f) => f.severity === "block"),
+            needsDecision: own.some((f) => f.severity === "review"),
+            flagCount: own.length,
+          }
+        : null,
+    };
+  });
 }
 
 export async function listRecentlyResolvedTasks(limit = 10) {

@@ -13,6 +13,7 @@ import type {
   FlagSeverity,
   ReasonCode,
   RecoStatus,
+  ReviewAction,
   ReviewStatus,
 } from "@/db/schema";
 
@@ -118,7 +119,10 @@ export const applicationStatusHint: Record<ApplicationStatus, string> = {
   approved: "Approved. Your policy is being issued.",
   policy_issued: "Your cover is active.",
   withdrawn: "This application was withdrawn.",
-  declined: "We could not offer cover on this application.",
+  // The advisor's own message to them sits directly below this on the page —
+  // saying "we could not offer cover" here as well delivers the bad news twice
+  // and leaves the specific, useful version looking like a repeat.
+  declined: "An advisor has closed this application. Their note is below.",
   expired: "This application expired before it was completed.",
 };
 
@@ -213,6 +217,27 @@ export const reviewStatusTone: Record<ReviewStatus, Tone> = {
   open: "warning",
   in_progress: "info",
   resolved: "success",
+};
+
+/** What an advisor did, in the broker register. */
+export const reviewActionLabel: Record<ReviewAction, string> = {
+  approve: "Approved",
+  edit: "Edited",
+  override: "Overridden",
+  reject: "Rejected",
+  uphold: "Upheld",
+  overturn: "Overturned",
+  request_info: "Asked the applicant for more",
+};
+
+export const reviewActionTone: Record<ReviewAction, Tone> = {
+  approve: "success",
+  edit: "info",
+  override: "info",
+  reject: "danger",
+  uphold: "neutral",
+  overturn: "success",
+  request_info: "warning",
 };
 
 export const recoStatusLabel: Record<RecoStatus, string> = {

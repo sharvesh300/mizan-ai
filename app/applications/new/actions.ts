@@ -14,6 +14,7 @@ import {
   emptyDraft,
   parseHorizonMonths,
   splitList,
+  updateApplicationFromDraft,
   type IntakeDraft,
 } from "@/lib/intake";
 import { nextStep, replayDraft, stepByKey, STEPS, summarise } from "@/lib/intake-chat";
@@ -27,6 +28,7 @@ import {
   sayAssistant,
   sayInbound,
 } from "@/lib/ai/intake-session";
+import { validateAndClassify } from "@/lib/ai/assessment-session";
 import { isAgentEnabled } from "@/lib/ai/openrouter";
 import { getCurrentUser } from "@/lib/session";
 import type { BudgetBand, MaritalStatus, RelationshipType } from "@/db/schema";
@@ -74,6 +76,11 @@ export async function submitIntakeForm(formData: FormData): Promise<void> {
   };
 
   const applicationId = await createApplication(user, draft, "web_form");
+  // Validated, classified and routed before the applicant sees the page — the
+  // whole difference between "processed immediately" and a callback in two
+  // hours. Awaited, not fired and forgotten: the redirect below lands on a
+  // record that already knows what it is.
+  await validateAndClassify(applicationId);
   revalidatePath("/applications");
   redirect(`/applications/${applicationId}?submitted=1`);
 }
@@ -291,7 +298,28 @@ async function finishOrAmend(
     return;
   }
 
+  // The same guard as the questionnaire path: a conversation that has already
+  // produced an application updates it rather than producing another.
+  const existingId = await applicationIdFor(conversationId);
+  if (existingId) {
+    await updateApplicationFromDraft(existingId, draft, user, "Applicant amended their details in chat");
+    await validateAndClassify(existingId, { force: true });
+    await sayAssistant(
+      conversationId,
+      "Thank you — that's on your record now and back with your advisor.",
+      { applicationId: existingId },
+    );
+    await db
+      .update(conversation)
+      .set({ status: "completed", lastOutboundAt: new Date() })
+      .where(eq(conversation.id, conversationId));
+    revalidatePath("/applications");
+    revalidatePath("/queue");
+    return;
+  }
+
   const applicationId = await createApplication(user, draft, "chat");
+  await validateAndClassify(applicationId);
   await db
     .update(conversation)
     .set({ status: "completed", applicationId, closedAt: new Date() })
@@ -313,6 +341,16 @@ async function finishOrAmend(
 // for the gaps. When OPENROUTER_API_KEY is absent, every conversation stays on
 // the scripted path and nothing here runs.
 // ---------------------------------------------------------------------------
+
+/** The application this conversation has already produced, if any. */
+async function applicationIdFor(conversationId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ applicationId: conversation.applicationId })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  return row?.applicationId ?? null;
+}
 
 /** The greeting carries the mode, so a conversation keeps the flow it started in. */
 const AGENT_GREETING_PAYLOAD = { mode: "agent" as const };
@@ -421,7 +459,28 @@ async function finishOrAmendAgent(
     return;
   }
 
+  // The same guard as the questionnaire path: a conversation that has already
+  // produced an application updates it rather than producing another.
+  const existingId = await applicationIdFor(conversationId);
+  if (existingId) {
+    await updateApplicationFromDraft(existingId, draft, user, "Applicant amended their details in chat");
+    await validateAndClassify(existingId, { force: true });
+    await sayAssistant(
+      conversationId,
+      "Thank you — that's on your record now and back with your advisor.",
+      { applicationId: existingId },
+    );
+    await db
+      .update(conversation)
+      .set({ status: "completed", lastOutboundAt: new Date() })
+      .where(eq(conversation.id, conversationId));
+    revalidatePath("/applications");
+    revalidatePath("/queue");
+    return;
+  }
+
   const applicationId = await createApplication(user, draft, "chat");
+  await validateAndClassify(applicationId);
   await db
     .update(conversation)
     .set({ status: "completed", applicationId, closedAt: new Date() })
@@ -504,6 +563,42 @@ export async function submitQuestionnaire(conversationId: string, formData: Form
     await askQuestions(conversationId, rejected.map((r) => r.retry).join("\n\n"), questions, state.openQuestions);
     await db.update(conversation).set({ status: "active" }).where(eq(conversation.id, conversationId));
     revalidatePath(`/applications/new/chat/${conversationId}`);
+    return;
+  }
+
+  // An advisor asked for this, on an application that already exists. The
+  // answers belong to THAT record — creating a second application because the
+  // conversation reached the end again would give one person two applications
+  // and the broker two recommendations to choose between.
+  //
+  // No model call either: the advisor named the fields, the applicant answered
+  // them, and there is nothing left to work out. Update, re-run the rules,
+  // say so.
+  if (convo.applicationId) {
+    const updated = await loadChatState(conversationId);
+    await updateApplicationFromDraft(
+      convo.applicationId,
+      updated.draft,
+      user,
+      `Applicant answered the advisor's questions: ${answers.map((a) => labelForField(a.fieldKey)).join(", ")}`,
+    );
+    const outcome = await validateAndClassify(convo.applicationId, { force: true });
+
+    await sayAssistant(
+      conversationId,
+      outcome && outcome.gate === "auto"
+        ? "Thank you — that's updated and your application is moving again. Nothing else is needed from you."
+        : "Thank you — that's on your record now and back with your advisor. They will come back to you.",
+      { applicationId: convo.applicationId },
+    );
+    await db
+      .update(conversation)
+      .set({ status: "completed", lastOutboundAt: new Date() })
+      .where(eq(conversation.id, conversationId));
+
+    revalidatePath(`/applications/new/chat/${conversationId}`);
+    revalidatePath(`/applications/${convo.applicationId}`);
+    revalidatePath("/queue");
     return;
   }
 

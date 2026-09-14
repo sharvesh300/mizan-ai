@@ -23,7 +23,6 @@ import {
   applicationPriority,
   applicationStatusHistory,
   person,
-  reviewTask,
   type BenefitClass,
   type BudgetBand,
   type ConditionStability,
@@ -108,10 +107,22 @@ export function classifyPriority(text: string): PriorityTag {
   return "other";
 }
 
-/** "managed"/"controlled"/"stable" -> managed; "flare"/"unstable" -> unstable. */
+/**
+ * "managed"/"controlled"/"stable" -> managed; "flare"/"not under control" -> unstable.
+ *
+ * NEGATION IS TESTED FIRST, and that ordering is the whole point: the
+ * questionnaire's own option for an unstable condition is "Not under control
+ * right now", which contains the word "control" and was being read as
+ * *managed*'s opposite of itself — the parser returned `unknown` and re-asked
+ * the applicant a question they had just answered from a list we wrote.
+ * A stability answer is also the difference between a `managed` cohort and a
+ * `condition_unstable` review flag, so reading it backwards is not cosmetic.
+ */
 export function classifyStability(text: string): ConditionStability {
-  if (/managed|controlled|stable|well.?controlled|on medication/i.test(text)) return "managed";
-  if (/unstable|flare|uncontrolled|worsening|recent/i.test(text)) return "unstable";
+  if (/\bnot\b[^.]*(control|managed|stable|good|great)|unstable|flare|uncontrolled|worsening|recent|not at the moment/i.test(text)) {
+    return "unstable";
+  }
+  if (/managed|controlled|under control|stable|on medication/i.test(text)) return "managed";
   return "unknown";
 }
 
@@ -311,30 +322,11 @@ export async function createApplication(
       );
     }
 
-    // Route it. Priority is the queue's ordering key, so it is set from what
-    // actually makes a case harder to decide, not from arrival time.
-    const priority =
-      50 +
-      (draft.conditions.length > 0 ? 20 : 0) +
-      (draft.needs.some((n) => n.horizonMonths != null && n.horizonMonths <= 12) ? 15 : 0) +
-      (draft.treatmentOutsideUaeExpected ? 10 : 0) +
-      (draft.needs.some((n) => n.benefitClass == null) ? 10 : 0);
-
-    const reasons = [
-      "New application awaiting assessment",
-      draft.conditions.length > 0 ? `${draft.conditions.length} declared condition(s)` : null,
-      draft.needs.some((n) => n.benefitClass == null) ? "a stated need could not be classified" : null,
-      draft.treatmentOutsideUaeExpected ? "expects treatment outside the UAE" : null,
-    ].filter(Boolean);
-
-    await db.insert(reviewTask).values({
-      subjectType: "application",
-      subjectId: applicationId,
-      reason: reasons.join(" · "),
-      priorityScore: priority,
-      status: "open",
-    });
-
+    // NOT routed here. The application is written; whether it needs a person
+    // is decided by `validateAndClassify` (lib/ai/assessment-session.ts) from
+    // the flags that actually fire against the plan catalogue. Queueing every
+    // application on arrival, as this used to, gave the broker a list with no
+    // information in it — everything present, nothing distinguished.
     await db.run(sql`commit`);
   } catch (error) {
     await db.run(sql`rollback`);
@@ -342,4 +334,99 @@ export async function createApplication(
   }
 
   return applicationId;
+}
+
+/**
+ * Re-write an existing application from the draft the conversation now holds.
+ *
+ * This is the other half of the advisor's `request_info`: they asked for two
+ * things, the applicant answered them, and the record has to pick those
+ * answers up WITHOUT becoming a second application. The draft is replayed from
+ * the same `extraction` rows as ever — original answers plus the new ones — so
+ * what lands here is the whole record as they have now described it, not a
+ * patch that has to be merged with something.
+ *
+ * The declared child rows are replaced rather than diffed: they have no
+ * identity of their own beyond the words in them, and a diff would have to
+ * guess whether an edited condition is a correction or an addition. Replacing
+ * from one consistent draft cannot produce that ambiguity.
+ *
+ * The application then goes back to `submitted`, which is what makes the
+ * caller's re-assessment honest — the rules run again over the new record.
+ */
+export async function updateApplicationFromDraft(
+  applicationId: string,
+  draft: IntakeDraft,
+  actor: { id: string },
+  reason: string,
+): Promise<void> {
+  const [current] = await db
+    .select({ status: application.status })
+    .from(application)
+    .where(eq(application.id, applicationId))
+    .limit(1);
+  if (!current) throw new Error("Application not found.");
+
+  await db.run(sql`begin`);
+  try {
+    await db
+      .update(application)
+      .set({
+        ...(draft.age != null ? { age: draft.age } : {}),
+        maritalStatus: draft.maritalStatus,
+        smoker: draft.smoker,
+        emirate: draft.emirate,
+        ...(draft.budget != null ? { budget: draft.budget } : {}),
+        ...(draft.policyInception ? { policyInception: draft.policyInception } : {}),
+        treatmentOutsideUaeExpected: draft.treatmentOutsideUaeExpected,
+        status: "submitted",
+        statusChangedAt: new Date(),
+      })
+      .where(eq(application.id, applicationId));
+
+    await db.delete(applicationCondition).where(eq(applicationCondition.applicationId, applicationId));
+    await db.delete(applicationNeed).where(eq(applicationNeed.applicationId, applicationId));
+    await db.delete(applicationPriority).where(eq(applicationPriority.applicationId, applicationId));
+
+    if (draft.conditions.length > 0) {
+      await db.insert(applicationCondition).values(
+        draft.conditions.map((c) => ({
+          applicationId,
+          rawText: c.rawText,
+          stability: c.stability,
+          declaredAtIntake: true,
+          enteredByUserId: actor.id,
+        })),
+      );
+    }
+    if (draft.needs.length > 0) {
+      await db.insert(applicationNeed).values(
+        draft.needs.map((n) => ({
+          applicationId,
+          rawText: n.rawText,
+          benefitClass: n.benefitClass,
+          horizonMonths: n.horizonMonths,
+        })),
+      );
+    }
+    if (draft.priorities.length > 0) {
+      await db.insert(applicationPriority).values(
+        draft.priorities.map((p) => ({ applicationId, rawText: p.rawText, tag: p.tag })),
+      );
+    }
+
+    await db.insert(applicationStatusHistory).values({
+      applicationId,
+      fromStatus: current.status,
+      toStatus: "submitted",
+      changedBy: "applicant",
+      changedByUserId: actor.id,
+      reason,
+    });
+
+    await db.run(sql`commit`);
+  } catch (error) {
+    await db.run(sql`rollback`);
+    throw error;
+  }
 }
