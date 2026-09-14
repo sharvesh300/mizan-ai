@@ -13,10 +13,21 @@
 //     validate ──> classify ──> narrate ──> route ──┬──> gate (interrupt: an advisor owns it)
 //                                                   └──> END  (clean — advance to quoting)
 //
-// They are two graphs, not one, because they are separated by a human
-// decision and a database write: intake ends when the applicant says "send
-// it", and assessment starts from the row that created. Quote and recommend
-// attach to the assessment graph as their nodes land.
+//   RECOMMENDATION (the record is clean)
+//     price ──> recommend ──> verify ──┬──> recommendationGate (interrupt: an advisor owns it)
+//                                      └──> END  (present to the applicant)
+//
+// Intake is compiled and invoked separately from the other two because it is
+// the applicant's own graph, on its own state shape. Assessment and
+// recommendation are compiled as separate topologies too — they are
+// separated by a human decision and a database write, exactly like intake and
+// assessment are (assessment starts from the row intake created; recommendation
+// starts only once an advisor's gate is clear, which may be a different
+// request entirely) — but recommendation's nodes ATTACH to assessment's own
+// state (`AssessmentState` in ./graph/state.ts) rather than declaring a
+// second one: it reads `record`/`catalogue`/`cohort`/`verdict.flags`, the
+// same channels `validate`/`classify` already populated, because a
+// recommendation is a later phase of the same record, not a different one.
 
 import "server-only";
 import { END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
@@ -26,16 +37,29 @@ import { confirm } from "./graph/nodes/confirm";
 import { converse, gaps } from "./graph/nodes/converse";
 import { gate } from "./graph/nodes/gate";
 import { narrate } from "./graph/nodes/narrate";
+import { price } from "./graph/nodes/price";
+import { recommend } from "./graph/nodes/recommend";
+import { needsGate, recommendationGate } from "./graph/nodes/recommendation-gate";
 import { gated, route } from "./graph/nodes/route";
 import { validate } from "./graph/nodes/validate";
+import { verify } from "./graph/nodes/verify";
 import {
   AssessmentState,
   IntakeState,
   type AssessmentOutcome,
+  type RecommendationOutcome,
   type Turn,
 } from "./graph/state";
+import type { PreviousRound } from "./tools/plans";
 import type { PendingQuestion } from "./questions";
-import { assignCohort, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
+import {
+  assignCohort,
+  type AssessmentContext,
+  type AssessmentRecord,
+  type Catalogue,
+  type CohortAssignment,
+  type Verdict,
+} from "@/lib/assessment";
 import type { IntakeDraft } from "@/lib/intake";
 
 const intakeGraph = new StateGraph(IntakeState)
@@ -139,6 +163,71 @@ export async function runAssessment(input: {
     ...verdict,
     routedToReview,
     narrated: result.narrated ?? [],
+    servedBy: result.servedBy ?? null,
+    latencyMs: result.latencyMs ?? 0,
+  };
+}
+
+// Recommendation is a later phase of the SAME state assessment uses (see the
+// comment on `AssessmentState` in graph/state.ts) — it attaches `price` /
+// `recommend` / `verify` / `recommendationGate` onto that one annotation
+// rather than declaring a second, disjoint state. `record`, `catalogue` and
+// `cohort` are the very fields `validate`/`classify` already populated;
+// `recommend` reads the flags a declared need ran into off `verdict.flags`,
+// the same channel `route`/`gate` already read.
+const recommendationGraph = new StateGraph(AssessmentState)
+  .addNode("price", price)
+  .addNode("recommend", recommend)
+  .addNode("verify", verify)
+  .addNode("recommendationGate", recommendationGate)
+  .addEdge(START, "price")
+  .addEdge("price", "recommend")
+  .addEdge("recommend", "verify")
+  .addConditionalEdges("verify", needsGate, { gate: "recommendationGate", present: END })
+  .addEdge("recommendationGate", END);
+
+/**
+ * Price all three plans, let the agent build a shortlist over its tool
+ * budget (or fall back to the deterministic ranking), then verify it.
+ *
+ * Returns the whole outcome rather than writing anything — persistence is the
+ * caller's job (lib/ai/recommendation-session.ts), the same division
+ * assessment and intake both use, so this stays runnable against the
+ * supplied fixtures with no database at all.
+ *
+ * `cohort` and `verdict` are the assessment's own — recommendation does not
+ * re-derive them, it reads what `runAssessment` already produced and the
+ * caller already persisted.
+ */
+export async function runRecommendation(input: {
+  record: AssessmentRecord;
+  catalogue: Catalogue;
+  cohort: CohortAssignment;
+  verdict: Verdict;
+  previousRounds: PreviousRound[];
+}): Promise<RecommendationOutcome> {
+  const compiled = recommendationGraph.compile({ checkpointer: new MemorySaver() });
+  const config = { configurable: { thread_id: crypto.randomUUID() } };
+
+  const result = await compiled.invoke(input, config);
+
+  // `recommendationGate` interrupted, so the graph is paused rather than
+  // finished — same read as runAssessment's gate.
+  const snapshot = await compiled.getState(config);
+  const routedToReview = snapshot.tasks.some((task) => (task.interrupts ?? []).length > 0);
+
+  return {
+    quotes: result.quotes ?? [],
+    shortlist: result.shortlist ?? [],
+    rejections: result.rejections ?? [],
+    brokerReasoning: result.brokerReasoning ?? "",
+    memberReasoning: result.memberReasoning ?? "",
+    confidence: result.recoConfidence ?? "low",
+    uncertaintyReason: result.recoUncertaintyReason ?? null,
+    trace: result.trace ?? [],
+    fellBackTo: result.fellBackTo ?? null,
+    verifyFailed: result.verifyFailed ?? false,
+    routedToReview,
     servedBy: result.servedBy ?? null,
     latencyMs: result.latencyMs ?? 0,
   };

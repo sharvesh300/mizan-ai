@@ -162,6 +162,32 @@ export type StructuredResult<T> = {
   servedBy: string;
 };
 
+/** Free-tier 429s ("Rate limit exceeded: free-models-per-day" and friends) — not a schema problem, so retrying the same call is the right response, not re-asking the model to fix its output. */
+const isRateLimitError = (message: string): boolean => /rate limit|429/i.test(message);
+
+const MAX_RATE_LIMIT_RETRIES = 2;
+
+/**
+ * `model.invoke` with a short backoff retry on a rate-limit error only.
+ * Kept separate from `structuredCall`'s own 2-attempt schema-repair loop —
+ * a 429 is not a parse failure, and burning a repair attempt on it would
+ * mean the model never gets asked to fix a genuinely malformed reply.
+ */
+async function invokeWithRetry(
+  model: ChatOpenAI,
+  messages: (SystemMessage | HumanMessage)[],
+): Promise<Awaited<ReturnType<ChatOpenAI["invoke"]>>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await model.invoke(messages);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= MAX_RATE_LIMIT_RETRIES || !isRateLimitError(message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+}
+
 /**
  * One structured call: ask, parse, validate, and on failure show the model its
  * own output plus the error and let it fix it. Two attempts, then give up —
@@ -192,7 +218,8 @@ export async function structuredCall<T>(input: {
       maxTokens: truncated ? MAX_OUTPUT_TOKENS * 3 : MAX_OUTPUT_TOKENS,
     });
 
-    const response = await model.invoke(
+    const response = await invokeWithRetry(
+      model,
       attempt === 1
         ? messages
         : [

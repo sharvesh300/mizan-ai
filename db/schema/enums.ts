@@ -31,6 +31,7 @@ export const applicationStatusEnum = [
   "recommended",
   "in_review",
   "approved",
+  "plan_selected",
   "policy_issued",
   "withdrawn",
   "declined",

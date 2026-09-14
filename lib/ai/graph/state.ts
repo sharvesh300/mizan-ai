@@ -25,6 +25,8 @@ import {
   type Verdict,
 } from "@/lib/assessment";
 import { emptyDraft, type IntakeDraft } from "@/lib/intake";
+import type { ConfidenceLevel } from "@/db/schema";
+import type { QuoteRow } from "@/lib/recommendation";
 
 /** Last-write-wins annotation — the only reducer shape this graph uses. */
 const latest = <T>(fallback: () => T) =>
@@ -60,13 +62,21 @@ export type AcceptedValue = ExtractedValue & {
 
 /**
  * Same discipline as the intake state: the graph holds one pass, and the
- * durable record is the `assessment` / `assessment_flag` / `review_task` rows
- * the caller writes afterwards.
+ * durable record is the rows the caller writes afterwards
+ * (lib/ai/assessment-session.ts, lib/ai/recommendation-session.ts).
  *
  * `fired` is carried as rule+flag pairs rather than flags alone, because
  * `narrate` rewrites wording and `route` reads severity and confidence floors.
  * One of those is allowed to change what the broker reads; the other decides
  * where the application goes, and they must not be able to touch each other.
+ *
+ * Recommendation is not a second, disjoint state: `price` / `recommend` /
+ * `verify` / `recommendationGate` (lib/ai/graph/nodes/*) read `record`,
+ * `catalogue` and `cohort` directly off THIS state, and read the flags a
+ * declared need runs into off `verdict.flags` — the same channels assessment
+ * already populated. It is a later phase of the one record, not a different
+ * one, so it attaches to the same annotation rather than re-declaring
+ * `record`/`catalogue`/`cohort` a second time under new names.
  */
 export const AssessmentState = Annotation.Root({
   record: latest<AssessmentRecord>(emptyRecord),
@@ -83,14 +93,70 @@ export const AssessmentState = Annotation.Root({
   queueLine: latest<string | null>(() => null),
   servedBy: latest<string | null>(() => null),
   latencyMs: latest<number>(() => 0),
+
+  // -- Recommendation phase (lib/ai/graph/nodes/{price,recommend,verify,recommendation-gate}.ts) --
+  /** Prior rounds' rejected shortlists, read by the `previous_rounds` tool. Round 2+ only. */
+  previousRounds: latest<{ round: number; rejectedPlanIds: string[]; reason: string }[]>(() => []),
+  quotes: latest<QuoteRow[]>(() => []),
+  /** One entry per tool-call step of the agent's loop (doc §3.6/§4.2). */
+  trace: latest<RecommendationTraceStep[]>(() => []),
+  shortlist: latest<ShortlistPick[]>(() => []),
+  rejections: latest<ShortlistRejection[]>(() => []),
+  brokerReasoning: latest<string | null>(() => null),
+  memberReasoning: latest<string | null>(() => null),
+  /** The recommendation's own confidence — distinct from `verdict.confidence`, which is the assessment's. */
+  recoConfidence: latest<ConfidenceLevel>(() => "low"),
+  recoUncertaintyReason: latest<string | null>(() => null),
+  /** Set when the tool loop did not complete and the deterministic path ran instead. */
+  fellBackTo: latest<string | null>(() => null),
+  /** Set when `verify` finds a figure with no matching observation. */
+  verifyFailed: latest<boolean>(() => false),
 });
 
 export type AssessmentStateType = typeof AssessmentState.State;
+/** Recommendation reads and writes the same state assessment does — see the comment above `AssessmentState`. */
+export type RecommendationStateType = AssessmentStateType;
 
 export type AssessmentOutcome = Assessment & {
   /** True when `gate` stopped the graph and a human now owns this. */
   routedToReview: boolean;
   narrated: string[];
+  servedBy: string | null;
+  latencyMs: number;
+};
+
+// ---------------------------------------------------------------------------
+// Recommendation — the agent's shortlist, built over a tool-call loop
+// ---------------------------------------------------------------------------
+
+/** One step of the JSON action loop (doc §3.6/§4.2) — a tool call, its validation, and what it returned. */
+export type RecommendationTraceStep = {
+  step: number;
+  thought: string;
+  tool: string;
+  args: unknown;
+  /** "ok", or the validation error that rejected this call. */
+  validation: string;
+  observationSummary: string;
+  latencyMs: number;
+};
+
+export type ShortlistPick = { planId: string; rank: number };
+export type ShortlistRejection = { planId: string; reason: string };
+
+export type RecommendationOutcome = {
+  quotes: QuoteRow[];
+  shortlist: ShortlistPick[];
+  rejections: ShortlistRejection[];
+  brokerReasoning: string;
+  memberReasoning: string;
+  confidence: ConfidenceLevel;
+  uncertaintyReason: string | null;
+  trace: RecommendationTraceStep[];
+  fellBackTo: string | null;
+  verifyFailed: boolean;
+  /** True when `recommendationGate` interrupted — an advisor owns this before the applicant sees it. */
+  routedToReview: boolean;
   servedBy: string | null;
   latencyMs: number;
 };
