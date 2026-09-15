@@ -107,51 +107,101 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
       </PageHeader>
 
       <PageBody className="space-y-6">
-        {search.submitted && !isAdvisor ? (
-          <Alert>
-            <CheckCircle2Icon className="text-success" />
-            <AlertTitle>Your application is in.</AlertTitle>
-            <AlertDescription>
-              An advisor reviews your details and the plan we suggest before anything is confirmed. Nothing else is
-              needed from you right now.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Progress</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ApplicationJourney
-              status={app.status}
-              audience={isAdvisor ? "broker" : "customer"}
-              withAdvisor={isWithAdvisor(app.status)}
-            />
-          </CardContent>
-        </Card>
-
         {isAdvisor ? (
-          <AdvisorRecord
-            applicationId={id}
-            declared={declared}
-            quotes={quotes}
-            recommendation={recommendation}
-            app={app}
-            person={person}
-            owner={record.owner}
-          />
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Progress</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ApplicationJourney status={app.status} audience="broker" withAdvisor={isWithAdvisor(app.status)} />
+              </CardContent>
+            </Card>
+
+            <AdvisorRecord
+              applicationId={id}
+              declared={declared}
+              quotes={quotes}
+              recommendation={recommendation}
+              app={app}
+              person={person}
+              owner={record.owner}
+            />
+          </>
         ) : (
-          <ApplicantRecord
-            applicationId={id}
-            declared={declared}
-            quotes={quotes}
-            recommendation={recommendation}
-            app={app}
-          />
+          <>
+            {search.submitted ? (
+              <Alert>
+                <CheckCircle2Icon className="text-success" />
+                <AlertTitle>Your application is in.</AlertTitle>
+                <AlertDescription>
+                  An advisor reviews your details and the plan we suggest before anything is confirmed. Nothing else
+                  is needed from you right now.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            {/* Sidebar (status + at-a-glance facts, the vertical timeline) next
+                to the main column (alerts, recommendation, plans, the record
+                itself) — a narrow fixed rail rather than the horizontal
+                strip's full-width card, so the page reads as one page
+                instead of a stack of equally-wide sections. */}
+            <div className="grid gap-6 lg:grid-cols-[19rem_1fr] lg:items-start">
+              <div className="space-y-6 lg:sticky lg:top-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{app.reference}</CardTitle>
+                    <CardDescription>Started {dateLabel(app.createdAt)}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                      <SummaryFact label="Age" value={String(app.age)} />
+                      <SummaryFact label="Budget" value={app.budget.replace(/_/g, " ")} />
+                      <SummaryFact label="Cover from" value={dateLabel(app.policyInception)} />
+                      <SummaryFact label="Emirate" value={app.emirate ?? "—"} />
+                    </dl>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ApplicationJourney
+                      status={app.status}
+                      audience="customer"
+                      withAdvisor={isWithAdvisor(app.status)}
+                      orientation="vertical"
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="min-w-0 space-y-6">
+                <ApplicantRecord
+                  applicationId={id}
+                  declared={declared}
+                  quotes={quotes}
+                  recommendation={recommendation}
+                  app={app}
+                />
+              </div>
+            </div>
+          </>
         )}
       </PageBody>
     </>
+  );
+}
+
+/** One fact in the sidebar summary card — value capitalised the same way DeclaredDetails' own grid does. */
+function SummaryFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-medium capitalize">{value}</dd>
+    </div>
   );
 }
 
@@ -271,7 +321,7 @@ async function ApplicantRecord({
         </Card>
       ) : null}
 
-      {quotes.length > 0 ? <PlanComparison quotes={quotes} /> : null}
+      {quotes.length > 0 ? <PlanComparison quotes={quotes} highlightPlanId={recommendation?.plan.id ?? null} /> : null}
 
       <Card>
         <CardHeader>
@@ -281,7 +331,9 @@ async function ApplicantRecord({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <DeclaredDetails declared={declared} app={app} />
+          {/* The age/budget/cover-from facts already sit in the sidebar
+              summary card above — showMeta={false} so they are not repeated. */}
+          <DeclaredDetails declared={declared} app={app} showMeta={false} />
           <Separator />
           <CorrectionRequest applicationId={applicationId} />
         </CardContent>
@@ -429,7 +481,7 @@ async function AdvisorRecord({
       </TabsContent>
 
       <TabsContent value="quotes" className="space-y-4 pt-4">
-        {quotes.length > 0 ? <PlanComparison quotes={quotes} showScores /> : (
+        {quotes.length > 0 ? <PlanComparison quotes={quotes} showScores highlightPlanId={recommendation?.plan.id ?? null} /> : (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               No quotes generated yet.
@@ -614,32 +666,39 @@ function DeclaredDetails({
   declared,
   app,
   showRaw = false,
+  showMeta = true,
 }: {
   declared: Declared;
   app: App;
   showRaw?: boolean;
+  /** Off on the applicant page, where this same set of facts already sits in the sidebar summary. */
+  showMeta?: boolean;
 }) {
   return (
     <div className="space-y-5">
-      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {[
-          ["Age", String(app.age)],
-          ["Marital status", app.maritalStatus ?? "—"],
-          ["Smoker", app.smoker == null ? "—" : app.smoker ? "Yes" : "No"],
-          ["Emirate", app.emirate ?? "—"],
-          ["Budget", app.budget.replace(/_/g, " ")],
-          ["Cover from", dateLabel(app.policyInception)],
-          ["Treatment abroad expected", app.treatmentOutsideUaeExpected ? "Yes" : "No"],
-          ["Captured via", app.intakeSource.replace(/_/g, " ")],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="font-medium capitalize">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      {showMeta ? (
+        <>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              ["Age", String(app.age)],
+              ["Marital status", app.maritalStatus ?? "—"],
+              ["Smoker", app.smoker == null ? "—" : app.smoker ? "Yes" : "No"],
+              ["Emirate", app.emirate ?? "—"],
+              ["Budget", app.budget.replace(/_/g, " ")],
+              ["Cover from", dateLabel(app.policyInception)],
+              ["Treatment abroad expected", app.treatmentOutsideUaeExpected ? "Yes" : "No"],
+              ["Captured via", app.intakeSource.replace(/_/g, " ")],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="font-medium capitalize">{value}</dd>
+              </div>
+            ))}
+          </dl>
 
-      <Separator />
+          <Separator />
+        </>
+      ) : null}
 
       <DeclaredList
         title="Health conditions"
@@ -720,7 +779,24 @@ function DeclaredList({
   );
 }
 
-function PlanComparison({ quotes, showScores = false }: { quotes: Quotes; showScores?: boolean }) {
+function PlanComparison({
+  quotes,
+  showScores = false,
+  highlightPlanId = null,
+}: {
+  quotes: Quotes;
+  showScores?: boolean;
+  /**
+   * The live recommendation's plan — the one actually suggested (or, once
+   * the applicant has picked, the one they picked; `pickPlan`,
+   * app/applications/new/actions.ts, makes their choice the new live row
+   * either way, so this is always "the one that matters right now"). Falls
+   * back to the cheapest eligible plan (`rank === 1`) when there is no
+   * recommendation yet to point at — highlighting NOTHING would read as a
+   * bug, not as "nothing decided yet".
+   */
+  highlightPlanId?: string | null;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -731,18 +807,20 @@ function PlanComparison({ quotes, showScores = false }: { quotes: Quotes; showSc
       </CardHeader>
       <CardContent>
         <div className="grid gap-4 lg:grid-cols-3">
-          {quotes.map((quote) => (
+          {quotes.map((quote) => {
+            const highlighted = highlightPlanId ? quote.plan.id === highlightPlanId : quote.rank === 1;
+            return (
             <div
               key={quote.id}
               className={
-                quote.rank === 1
+                highlighted
                   ? "rounded-xl border-2 border-brand bg-brand-subtle/30 p-4"
                   : "rounded-xl border p-4"
               }
             >
               <div className="flex flex-wrap items-center gap-2">
                 <p className="font-medium">{quote.plan.name}</p>
-                {quote.rank === 1 ? <StatusBadge tone="brand">Best match</StatusBadge> : null}
+                {highlighted ? <StatusBadge tone="brand">{highlightPlanId ? "Recommended" : "Best match"}</StatusBadge> : null}
                 {!quote.eligible ? <StatusBadge tone="danger">Not suitable</StatusBadge> : null}
               </div>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{money(quote.annualPremium)}</p>
@@ -774,7 +852,8 @@ function PlanComparison({ quotes, showScores = false }: { quotes: Quotes; showSc
                 ) : null}
               </dl>
             </div>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>
