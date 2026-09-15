@@ -442,26 +442,27 @@ async function recentPlanHistory(conversationId: string, limit = 8): Promise<Pla
 }
 
 /**
- * Answer a question about the panel, and act on what the model read off it —
- * `reject_shortlist` and `escalate` are non-destructive/additive, so they run
- * directly through the same functions a button click would use.
- * `choose_plan` is deliberately NOT auto-actioned: the live plan card
- * (`getActiveShortlist`, lib/queries.ts) is already on screen below this
- * reply, and picking a plan is a commitment that stays behind its own
- * button, not a model's reading of a sentence.
+ * Answer a question about the panel. Only `escalate` is auto-actioned — it is
+ * genuinely additive, a review task that costs the applicant nothing and
+ * changes nothing they see.
+ *
+ * `reject_shortlist` and `choose_plan` are both deliberately NOT auto-acted
+ * on, and for the same reason: the live plan card (`getActiveShortlist`,
+ * lib/queries.ts) is already on screen below this reply, with its own
+ * "Choose this plan" / "None of these fit" buttons, and a model's READING of
+ * a sentence is not the thing that should stand in for either. This used to
+ * auto-fire `rejectShortlist` on `intent === "reject_shortlist"` — a model
+ * reading an ordinary question ("what if none of these work for someone with
+ * my situation?") as a rejection would silently spend one of the applicant's
+ * 3 rounds, hide the cards behind "Still working on this…", and kick off a
+ * real re-run, all without the applicant ever having clicked anything. The
+ * button already on the card is the one place that decision should be made.
  */
 async function handlePlanChatMessage(conversationId: string, applicationId: string, question: string): Promise<void> {
   const history = await recentPlanHistory(conversationId);
   const result = await answerPlanQuestion(conversationId, applicationId, question, history);
   if (!result) {
     await sayAssistant(conversationId, "I'm still working out your plan — I'll have it ready shortly, and you can ask me anything about it then.");
-    return;
-  }
-
-  if (result.intent === "reject_shortlist") {
-    const rejectForm = new FormData();
-    rejectForm.set("reason", result.reason ?? question);
-    await rejectShortlist(conversationId, rejectForm);
     return;
   }
 
@@ -483,7 +484,6 @@ export async function sendChatMessage(conversationId: string, formData: FormData
 
   const [convo] = await db.select().from(conversation).where(eq(conversation.id, conversationId)).limit(1);
   if (!convo || convo.userId !== user.id) throw new Error("Conversation not found.");
-  if (convo.status === "completed") return;
 
   const answer = (formData.get("answer")?.toString() ?? "").trim();
   if (!answer) return;
@@ -491,7 +491,13 @@ export async function sendChatMessage(conversationId: string, formData: FormData
   // Intake is over the moment an application exists and nothing is still
   // open on it (see the comment above hasOpenQuestion). This runs before the
   // scripted/agent split below on purpose — it applies regardless of which
-  // mode the conversation started in.
+  // mode the conversation started in, and regardless of `completed` too:
+  // `completed` today means the policy has issued (issuePolicy,
+  // app/applications/[id]/actions.ts, is the only writer of that status) —
+  // not that the applicant's questions have. "What's my deductible?" is a
+  // perfectly good thing to ask about a plan that is now theirs, and
+  // `handlePlanChatMessage` already answers off the live recommendation/
+  // policy's own terms, so there is nothing intake-shaped left to gate here.
   if (convo.applicationId) {
     const [openQuestion, recapPending] = await Promise.all([hasOpenQuestion(conversationId), isRecapConfirmationPending(conversationId)]);
     if (!openQuestion && !recapPending) {
@@ -501,6 +507,12 @@ export async function sendChatMessage(conversationId: string, formData: FormData
       return;
     }
   }
+
+  // Only a scripted/agent-intake conversation with no application at all can
+  // still be `completed` with nothing above to route it — e.g. an applicant
+  // reopening a link after declining before ever submitting. Nothing past
+  // this point makes sense to run again.
+  if (convo.status === "completed") return;
 
   // A conversation started on the scripted path stays on it, key or no key.
   if (!isAgentEnabled() || !(await isAgentConversation(conversationId))) {

@@ -32,10 +32,15 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   ]);
 
   const answered = questions.filter((q) => q.status === "answered" || q.status === "skipped").length;
-  // Fully closed (declined outcome message, or a legacy conversation) — every
-  // other state, including "with an advisor", still has a conversation the
-  // applicant can add to, so only this one hides the composer.
+  // `completed` today only ever means the policy has issued (issuePolicy,
+  // app/applications/[id]/actions.ts) — it is a record of what happened, not
+  // a reason to stop the applicant asking about the cover they now have.
   const done = convo.status === "completed";
+  // The one thing `done` SHOULD still close: an applicant reopening a
+  // conversation that was completed before it ever produced an application
+  // (nothing here to ask a plan question about). Everything past that keeps
+  // the composer live.
+  const canStillChat = Boolean(convo.applicationId) || !done;
   // `awaiting_review` now means an actual person owns this — either Review 1
   // gated the record (`in_review`), or a round 2 objection is being worked.
   // A clean record never sets this (lib/ai/conversation-continuation.ts).
@@ -80,7 +85,9 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
           title="Your application"
           description={
             done
-              ? "Your cover is active — this conversation is saved with your application."
+              ? canStillChat
+                ? "Your cover is active — ask away if you have questions about your plan."
+                : "Your cover is active — this conversation is saved with your application."
               : waitingOnAdvisor
                 ? "An advisor has this now. We'll be back with you here."
                 : shortlist && !shortlist.pendingRound
@@ -182,14 +189,14 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
         </div>
       </div>
 
-      {done ? null : (
+      {canStillChat ? (
         <ChatComposer
           conversationId={id}
           suggestions={suggestions}
           initials={initials}
-          placeholder={questionnaire ? "…or just tell me in your own words" : "Tell me what you're after…"}
+          placeholder={done ? "Ask about your plan or policy…" : questionnaire ? "…or just tell me in your own words" : "Tell me what you're after…"}
         />
-      )}
+      ) : null}
 
       {/* Polls until the background recommendation round lands — see the
           component doc for why this is a fallback, not the primary path. */}
