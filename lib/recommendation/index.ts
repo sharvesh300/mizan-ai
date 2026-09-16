@@ -14,6 +14,7 @@ export * from "./types";
 export { CONSTANTS_VERSION, INPATIENT_ADMISSION_COST, OUTPATIENT_VISIT_COST, buildScenario, isScenarioSelectable } from "./scenarios";
 export { estimateAnnualCost } from "./cost";
 export { CRITERIA, MAX_CRITERIA, MAX_WEIGHT, MIN_WEIGHT, isCriterionRelevant, scorePlans } from "./score";
+export { BASELINE_MAX_CRITERIA, WEIGHT_DELTA, suggestDefaultWeights } from "./default-weights";
 export { isEligible, shortlistablePlans } from "./eligibility";
 export { priceAllPlans } from "./quote";
 export { fallbackRecommend, type FallbackResult } from "./fallback";

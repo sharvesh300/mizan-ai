@@ -41,13 +41,24 @@ export const CRITERIA: CriterionDef[] = [
     value: (plan) => plan.annualPremium,
   },
   {
-    id: "total_annual_outlay",
+    id: "out_of_pocket_exposure",
     direction: "lower_is_better",
     isRelevant: () => true,
-    // A stable, always-available basket for scoring purposes — the same one
-    // the deterministic fallback uses, so "worth weighting" and "what the
-    // fallback already does" stay the same arithmetic.
-    value: (plan, record) => estimateAnnualCost(plan, buildScenario("MEDIUM_OUTPATIENT", record)).total,
+    // Deliberately EXCLUDES the premium — `premium_cost` already weighs that.
+    // This is what a plan costs ABOVE the premium: the deductible actually
+    // spent plus the co-pay on what's left, under the same stable basket the
+    // deterministic fallback uses. Including premium here too (the original
+    // "total_annual_outlay" shape) meant weighting this criterion and
+    // premium_cost together mostly weighted premium twice — on the seeded
+    // catalogue the two came out correlated at r≈0.98 under MEDIUM_OUTPATIENT,
+    // because premium dominates the total and the deductible/co-pay term is
+    // small next to it. Scoped to the non-premium term, this is an
+    // independent signal: two plans with the same premium can still differ
+    // here on deductible and co-pay design.
+    value: (plan, record) => {
+      const breakdown = estimateAnnualCost(plan, buildScenario("MEDIUM_OUTPATIENT", record));
+      return breakdown.deductibleApplied + breakdown.memberCopay;
+    },
   },
   {
     id: "need_coverage",
@@ -87,9 +98,17 @@ export const CRITERIA: CriterionDef[] = [
     value: (plan) => (plan.chronicCovered ? 100 / (1 + (plan.chronicWaitingPeriodMonths ?? 0)) : 0),
   },
   {
-    id: "annual_limit_headroom",
+    id: "annual_limit",
     direction: "higher_is_better",
     isRelevant: () => true,
+    // Named for exactly what this is: the plan's stated annual limit. It was
+    // previously called "annual_limit_headroom", which promised something
+    // this never computed — headroom is limit MINUS expected utilisation,
+    // and nothing here subtracts utilisation. Renamed rather than "fixed" to
+    // compute real headroom: that would need a utilisation estimate this
+    // criterion has no basis for (it runs across the whole panel, not one
+    // scenario), so the raw limit is what it honestly is — a ceiling, not a
+    // remaining balance.
     value: (plan) => plan.annualLimit,
   },
   {

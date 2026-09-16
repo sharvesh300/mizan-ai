@@ -56,12 +56,12 @@ export type CostBreakdown = {
 
 export const CRITERION_IDS = [
   "premium_cost",
-  "total_annual_outlay",
+  "out_of_pocket_exposure",
   "need_coverage",
   "waiting_period_fit",
   "network_access",
   "chronic_depth",
-  "annual_limit_headroom",
+  "annual_limit",
   "dental_optical",
 ] as const;
 export type CriterionId = (typeof CRITERION_IDS)[number];
