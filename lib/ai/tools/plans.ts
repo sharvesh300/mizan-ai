@@ -22,8 +22,11 @@ import {
   isEligible,
   isScenarioSelectable,
   scorePlans,
+  suggestDefaultWeights,
   COST_SCENARIO_IDS,
   CRITERION_IDS,
+  WEIGHT_DELTA,
+  type CriterionWeight,
 } from "@/lib/recommendation";
 import { benefitClassEnum, type BenefitClass, type ConfidenceLevel, type FlagSeverity } from "@/db/schema";
 
@@ -39,6 +42,24 @@ export type ToolContext = {
   cohort: string;
   flags: Flag[];
   previousRounds: PreviousRound[];
+  /**
+   * True only for the real shortlist-building loop (recommend.ts) — gates
+   * `score_plans` behind `suggest_default_weights` and the delta rule below.
+   * False for read-only exploratory re-scoring (plan-converse.ts): an
+   * applicant asking "what if price mattered a lot more" about an
+   * already-recommended plan should be answerable without first re-deriving
+   * a cohort baseline for it.
+   */
+  enforceWeightBaseline: boolean;
+  /**
+   * Set by `suggest_default_weights` the first time it's called this round;
+   * read by `score_plans` when `enforceWeightBaseline` is true. The one
+   * deliberately mutable field on this context — every tool call in a round
+   * shares the same `ToolContext` object, so this is how `score_plans` knows
+   * a baseline was actually established earlier in THIS round, without
+   * re-parsing it back out of the trace's truncated observation summaries.
+   */
+  suggestedWeights: CriterionWeight[] | null;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };
@@ -51,6 +72,7 @@ export const TOOL_NAMES = [
   "check_network_access",
   "estimate_annual_cost",
   "previous_rounds",
+  "suggest_default_weights",
   "score_plans",
   "propose_shortlist",
 ] as const;
@@ -282,7 +304,23 @@ function previousRoundsTool(ctx: ToolContext): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// 8. score_plans — the agent weighs, the arithmetic decides
+// 8. suggest_default_weights — a deterministic starting point, not a free pick
+// ---------------------------------------------------------------------------
+
+function suggestDefaultWeightsTool(ctx: ToolContext): ToolResult {
+  const weights = suggestDefaultWeights(ctx.record, ctx.cohort);
+  ctx.suggestedWeights = weights;
+  return ok({
+    cohort: ctx.cohort,
+    weights,
+    rule: ctx.enforceWeightBaseline
+      ? `score_plans must include at least one of these criteria, each within ±${WEIGHT_DELTA} of the weight shown here. You may add further relevant criteria of your own alongside them, up to 5 total.`
+      : "Informational in this read-only conversation — score_plans is not weight-restricted here.",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 9. score_plans — the agent weighs, the arithmetic decides
 // ---------------------------------------------------------------------------
 
 const scorePlansSchema = z.object({
@@ -295,6 +333,27 @@ function scorePlansTool(ctx: ToolContext, args: unknown): ToolResult {
   const parsed = scorePlansSchema.safeParse(args);
   if (!parsed.success) return err(issuesToMessage(parsed.error, args));
 
+  if (ctx.enforceWeightBaseline) {
+    if (ctx.suggestedWeights == null) {
+      return err("call suggest_default_weights first — score_plans needs a baseline to weigh your criteria against.");
+    }
+    const baseline = new Map(ctx.suggestedWeights.map((w) => [w.criterionId, w.weight]));
+    const overlapsBaseline = parsed.data.criteria.some((w) => baseline.has(w.criterionId));
+    if (!overlapsBaseline) {
+      return err(
+        `your criteria must include at least one from the suggested baseline (${[...baseline.keys()].join(", ")}) — adjust it within ±${WEIGHT_DELTA} or add others alongside it, but do not replace the baseline entirely.`,
+      );
+    }
+    for (const w of parsed.data.criteria) {
+      const base = baseline.get(w.criterionId);
+      if (base != null && Math.abs(w.weight - base) > WEIGHT_DELTA) {
+        return err(
+          `weight for "${w.criterionId}" (${w.weight}) is more than ±${WEIGHT_DELTA} from its suggested baseline (${base}) for this cohort — stay within that range, or drop the criterion instead of overriding it.`,
+        );
+      }
+    }
+  }
+
   try {
     return ok(scorePlans(ctx.catalogue.plans, ctx.record, ctx.catalogue, parsed.data.criteria));
   } catch (error) {
@@ -303,7 +362,7 @@ function scorePlansTool(ctx: ToolContext, args: unknown): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// 9. propose_shortlist — terminal
+// 10. propose_shortlist — terminal
 // ---------------------------------------------------------------------------
 
 const proposeShortlistSchema = z.object({
@@ -370,6 +429,8 @@ export function runTool(ctx: ToolContext, name: string, args: unknown): ToolResu
       return estimateAnnualCostTool(ctx, args);
     case "previous_rounds":
       return previousRoundsTool(ctx);
+    case "suggest_default_weights":
+      return suggestDefaultWeightsTool(ctx);
     case "score_plans":
       return scorePlansTool(ctx, args);
     case "propose_shortlist":
@@ -412,7 +473,10 @@ export function describeTools(ctx: ToolContext): Record<ToolName, string> {
     check_network_access: `{ planId } — planId from [${planIds}]. Each expected provider on the record, admitted or refused, and by which tier.`,
     estimate_annual_cost: `{ planId, scenarioId } — planId from [${planIds}]; scenarioId is ONE of: ${COST_SCENARIO_IDS.join(", ")}. No other args — the basket is built server-side and returned to you with its provenance.`,
     previous_rounds: "no args — prior shortlists this applicant already saw and rejected, and why (round 2+ only)",
-    score_plans: `{ criteria: [{ criterionId, weight }] } — criterionId is one of: ${CRITERION_IDS.join(", ")}. weight 0.05-0.6, at most 5 criteria, only criteria relevant to this record.`,
+    suggest_default_weights: ctx.enforceWeightBaseline
+      ? "no args — a deterministic, cohort-based starting weight set for this record. Call this BEFORE score_plans: score_plans requires your weights to include at least one of these criteria, each within ±0.15 of the weight shown here."
+      : "no args — a deterministic, cohort-based reference weight set for this record. Informational only in this read-only conversation.",
+    score_plans: `{ criteria: [{ criterionId, weight }] } — criterionId is one of: ${CRITERION_IDS.join(", ")}. weight 0.05-0.6, at most 5 criteria, only criteria relevant to this record.${ctx.enforceWeightBaseline ? " Must include at least one criterion from suggest_default_weights's baseline, within ±0.15 of its suggested weight." : ""}`,
     propose_shortlist: `{ picks: [{planId, rank}], rejections: [{planId, reason}], confidence: high|medium|low, uncertaintyReason?, brokerReasoning, memberReasoning } — picks/rejections planId from [${planIds}]. TERMINAL, ends the loop. Every figure in brokerReasoning/memberReasoning must come from an observation you actually received.`,
   };
 }
