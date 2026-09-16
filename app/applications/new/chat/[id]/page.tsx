@@ -14,7 +14,7 @@ import { Message, MessageAvatar, MessageContent, MessageGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { db } from "@/db/client";
 import { conversation, conversationQuestion, message } from "@/db/schema";
-import { isQuestionnairePayload } from "@/lib/ai/intake-session";
+import { isQuestionnairePayload, isRecommendationClarifyPayload } from "@/lib/ai/intake-session";
 import { getActiveShortlist } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
@@ -55,6 +55,11 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   const last = messages.at(-1);
   const openPayload = !done && !waitingOnAdvisor && last?.role === "assistant" ? last.payload : null;
   const questionnaire = isQuestionnairePayload(openPayload) ? openPayload : null;
+  // A clarifying question (lib/ai/graph/nodes/clarify.ts) — already fully
+  // rendered as the message bubble itself (its bodyText IS the question), so
+  // nothing extra needs rendering here beyond suppressing the spinner below:
+  // the applicant is being asked something, not waiting on a background job.
+  const clarifyPending = isRecommendationClarifyPayload(openPayload);
   const suggestions =
     !questionnaire && openPayload && typeof openPayload === "object" ? ((openPayload as { suggestions?: string[] }).suggestions ?? []) : [];
 
@@ -64,8 +69,10 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   // there is nothing on screen yet that reflects it. Excludes
   // `waitingOnAdvisor` so the spinner and the "With an advisor" panel are
   // never both on screen at once — Review 1 gates the record before
-  // recommendation ever runs, so there is nothing "still working" about it.
-  const working = Boolean(convo.applicationId) && !done && !waitingOnAdvisor && (!shortlist || shortlist.pendingRound);
+  // recommendation ever runs, so there is nothing "still working" about it —
+  // and excludes `clarifyPending`, where the system is waiting on the
+  // applicant, not the other way around.
+  const working = Boolean(convo.applicationId) && !done && !waitingOnAdvisor && !clarifyPending && (!shortlist || shortlist.pendingRound);
 
   const initials = user.fullName
     .split(" ")
@@ -90,13 +97,15 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
                 : "Your cover is active — this conversation is saved with your application."
               : waitingOnAdvisor
                 ? "An advisor has this now. We'll be back with you here."
-                : shortlist && !shortlist.pendingRound
-                  ? "We've got a plan for you — have a look below."
-                  : working
-                    ? "Working out the best plan for you — one moment."
-                    : answered > 0
-                      ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
-                      : "Say as much or as little as you like — everything is saved as you go."
+                : clarifyPending
+                  ? "One quick question, so we can get this right."
+                  : shortlist && !shortlist.pendingRound
+                    ? "We've got a plan for you — have a look below."
+                    : working
+                      ? "Working out the best plan for you — one moment."
+                      : answered > 0
+                        ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
+                        : "Say as much or as little as you like — everything is saved as you go."
           }
         />
       </div>

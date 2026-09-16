@@ -10,6 +10,18 @@
       ],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "mizan-docs",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8611",
+        "--directory",
+        "/private/tmp/claude-501/-Users-sharveshsivagnanam-development-mizan-ai/8395193c-7bd9-4c18-9603-1c2193d512e8/scratchpad/docs-site"
+      ],
+      "port": 8611
     }
   ]
 }

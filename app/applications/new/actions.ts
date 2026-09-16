@@ -427,6 +427,35 @@ async function isRecapConfirmationPending(conversationId: string): Promise<boole
   return Array.isArray(suggestions) && suggestions.includes("Yes, send it");
 }
 
+/**
+ * The still-open clarifying question for this application, if any —
+ * `target`/`question` are read straight off the authoritative
+ * `recommendation_clarify_asked` row `persistRecommendation`
+ * (lib/ai/recommendation-session.ts) wrote, NEVER from anything the client's
+ * request carries. "Open" means asked and not yet answered — the caller only
+ * ever supplies the raw answer text; everything else is reconstructed here.
+ * See lib/ai/graph/nodes/clarify.ts.
+ */
+async function openClarification(applicationId: string): Promise<{ target: string; question: string } | null> {
+  const [asked] = await db
+    .select()
+    .from(conversationAction)
+    .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_clarify_asked")))
+    .limit(1);
+  if (!asked) return null;
+
+  const [answered] = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_clarify_answered")))
+    .limit(1);
+  if (answered) return null;
+
+  const args = asked.arguments as { target?: string; question?: string } | null;
+  if (!args?.target || !args.question) return null;
+  return { target: args.target, question: args.question };
+}
+
 /** The last few turns, oldest first, for the plan-chat node's conversational memory — bounded so a long thread does not balloon the prompt. */
 async function recentPlanHistory(conversationId: string, limit = 8): Promise<PlanChatTurn[]> {
   const rows = await db
@@ -499,6 +528,43 @@ export async function sendChatMessage(conversationId: string, formData: FormData
   // `handlePlanChatMessage` already answers off the live recommendation/
   // policy's own terms, so there is nothing intake-shaped left to gate here.
   if (convo.applicationId) {
+    // Checked first — a pending clarifying question (lib/ai/graph/nodes/clarify.ts)
+    // takes this reply as its answer, not a plan-chat question. `target`/
+    // `question` never come from this request; see `openClarification`.
+    const pendingClarification = await openClarification(convo.applicationId);
+    if (pendingClarification) {
+      await sayInbound(conversationId, answer);
+
+      // Race-safe against a second rapid message: db/schema/actions.ts's
+      // one_clarify_answer_per_application index caps this at one row. Only
+      // the write that actually happens triggers a rerun.
+      const [recorded] = await db
+        .insert(conversationAction)
+        .values({
+          conversationId,
+          actionType: "recommendation_clarify_answered",
+          arguments: { rawAnswer: answer },
+          subjectType: "application",
+          subjectId: convo.applicationId,
+          status: "succeeded",
+          actorKind: "applicant",
+          actorUserId: user.id,
+          completedAt: new Date(),
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (recorded) {
+        await sayAssistant(conversationId, "Thanks — let me have another look with that in mind.");
+        await db.update(conversation).set({ status: "active", lastOutboundAt: new Date() }).where(eq(conversation.id, conversationId));
+        scheduleRecommendation(convo.applicationId, { force: true });
+      } else {
+        await sayAssistant(conversationId, "Got it — I already have your answer and I'm looking into it.");
+      }
+      revalidatePath(`/applications/new/chat/${conversationId}`);
+      return;
+    }
+
     const [openQuestion, recapPending] = await Promise.all([hasOpenQuestion(conversationId), isRecapConfirmationPending(conversationId)]);
     if (!openQuestion && !recapPending) {
       await sayInbound(conversationId, answer);
