@@ -293,6 +293,22 @@ export const isRecommendationShortlistPayload = (payload: unknown): payload is R
   typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "recommendation_shortlist";
 
 /**
+ * Display only — `question` here is for rendering the assistant's message.
+ * `sendChatMessage`'s answer-handling (app/applications/new/actions.ts) never
+ * reads this payload back as a data source; it re-derives `target`/`question`
+ * from the authoritative `recommendation_clarify_asked` conversation_action
+ * row the server itself wrote. See lib/ai/graph/nodes/clarify.ts.
+ */
+export type RecommendationClarifyPayload = {
+  kind: "recommendation_clarify";
+  question: string;
+  applicationId: string;
+};
+
+export const isRecommendationClarifyPayload = (payload: unknown): payload is RecommendationClarifyPayload =>
+  typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "recommendation_clarify";
+
+/**
  * Post the assistant's reply and open a question row per thing it asked.
  *
  * The questionnaire itself rides on the message payload, so the form the

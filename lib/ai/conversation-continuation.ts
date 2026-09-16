@@ -27,9 +27,14 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { application, conversation, recommendation } from "@/db/schema";
-import { sayAssistant, type RecommendationShortlistPayload } from "@/lib/ai/intake-session";
+import { sayAssistant, type RecommendationClarifyPayload, type RecommendationShortlistPayload } from "@/lib/ai/intake-session";
 
-async function latestConversationForApplication(applicationId: string) {
+/**
+ * Exported so `lib/ai/recommendation-session.ts` can find the conversation a
+ * clarifying question needs to be posted into, without re-deriving this
+ * lookup itself.
+ */
+export async function latestConversationForApplication(applicationId: string) {
   const [convo] = await db
     .select()
     .from(conversation)
@@ -113,5 +118,28 @@ export async function announceRecommendationOutcome(applicationId: string): Prom
   // at this" case, since nothing was produced to show.
   await sayAssistant(convo.id, "An advisor is taking a closer look at the plan before we show it to you.", { applicationId });
   await db.update(conversation).set({ status: "awaiting_review", lastOutboundAt: new Date() }).where(eq(conversation.id, convo.id));
+  return convo.id;
+}
+
+/**
+ * The applicant-facing half of `clarify` (lib/ai/graph/nodes/clarify.ts) —
+ * called from `scheduleRecommendation` when `outcome.pendingClarification` is
+ * set, instead of `announceRecommendationOutcome`.
+ *
+ * `persistRecommendation` (lib/ai/recommendation-session.ts) already wrote the
+ * authoritative `recommendation_clarify_asked` row — race-safe, inside its own
+ * transaction alongside `model_run`/`ai_decision` — before this ever runs.
+ * This function's only job is telling the applicant: post the question as the
+ * assistant's own message (display only — `sendChatMessage`'s answer-handling
+ * branch reads the DB row directly, never this message's payload) and open
+ * the conversation for their reply.
+ */
+export async function announceClarificationRequest(applicationId: string, question: string): Promise<string | null> {
+  const convo = await latestConversationForApplication(applicationId);
+  if (!convo || convo.status === "completed") return null;
+
+  const payload: RecommendationClarifyPayload = { kind: "recommendation_clarify", question, applicationId };
+  await sayAssistant(convo.id, question, payload);
+  await db.update(conversation).set({ status: "awaiting_user", lastOutboundAt: new Date() }).where(eq(conversation.id, convo.id));
   return convo.id;
 }

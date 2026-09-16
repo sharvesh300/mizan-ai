@@ -53,6 +53,11 @@ export async function answerPlanQuestion(
     cohort: inputs.cohort.cohort,
     flags: inputs.verdict.flags,
     previousRounds: inputs.previousRounds,
+    // Read-only exploratory re-scoring, not the recommendation-building loop
+    // — an applicant asking "what if price mattered more" should be
+    // answerable without first re-deriving a cohort weight baseline.
+    enforceWeightBaseline: false,
+    suggestedWeights: null,
   };
 
   const result = await planConverse({

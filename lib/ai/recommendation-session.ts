@@ -38,7 +38,7 @@
 // All of it in one transaction.
 
 import "server-only";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { db } from "@/db/client";
@@ -58,13 +58,16 @@ import {
   type ConfidenceLevel,
 } from "@/db/schema";
 import { loadAssessmentInputs } from "@/lib/ai/assessment-session";
-import { announceRecommendationOutcome } from "@/lib/ai/conversation-continuation";
+import { announceClarificationRequest, announceRecommendationOutcome, latestConversationForApplication } from "@/lib/ai/conversation-continuation";
 import { runRecommendation as runRecommendationGraph } from "@/lib/ai/graph";
+import type { ClarificationAnswer } from "@/lib/ai/graph/state";
 import type { RecommendationOutcome } from "@/lib/ai/graph/state";
 import { RECOMMENDATION_PROMPT_VERSION } from "@/lib/ai/graph/nodes/recommend";
+import { CLARIFY_PROMPT_VERSION } from "@/lib/ai/graph/nodes/clarify";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
 import type { PreviousRound } from "@/lib/ai/tools/plans";
 import type { AssessmentRecord, Catalogue, CohortAssignment, Verdict } from "@/lib/assessment";
+import type { CriterionId } from "@/lib/recommendation";
 
 /** Same numbers `assessment-session.ts` uses, and for the same reason: the schema's `low_confidence_needs_review` CHECK. */
 const CONFIDENCE_VALUE: Record<ConfidenceLevel, number> = { high: 0.95, medium: 0.8, low: 0.45 };
@@ -88,6 +91,10 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
   cohort: CohortAssignment;
   verdict: Verdict;
   previousRounds: PreviousRound[];
+  clarificationAsked: boolean;
+  clarification: ClarificationAnswer | null;
+  /** Where a clarifying question would be posted, if one is asked this round. */
+  conversationId: string | null;
 } | null> {
   const inputs = await loadAssessmentInputs(applicationId);
   if (!inputs) return null;
@@ -116,6 +123,41 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
     return { round: i + 1, rejectedPlanIds: args?.planIds ?? [], reason: args?.reason ?? "" };
   });
 
+  // Reconstructed purely from row existence/content, every call — this is the
+  // ONLY durable record of whether a clarifying question was ever asked and
+  // what the applicant said back. Nothing about it lives in LangGraph's
+  // checkpointer, which is fresh and discarded per invocation (see the
+  // comment on `runRecommendation`, lib/ai/graph.ts). Same pattern as
+  // `previousRounds` above, off a different `conversation_action` kind.
+  const convo = await latestConversationForApplication(applicationId);
+
+  const [askedAction] = await db
+    .select()
+    .from(conversationAction)
+    .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_clarify_asked")))
+    .limit(1);
+  // With no conversation, there is nowhere to post a clarifying question at
+  // all (e.g. a form-only application, never a chat) — force `true` so
+  // `routeAfterVerify` (lib/ai/graph/nodes/clarify.ts) never sends this
+  // application down a path with no way to actually ask.
+  const clarificationAsked = Boolean(askedAction) || !convo;
+
+  let clarification: ClarificationAnswer | null = null;
+  if (askedAction) {
+    const [answeredAction] = await db
+      .select()
+      .from(conversationAction)
+      .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_clarify_answered")))
+      .limit(1);
+    if (answeredAction) {
+      const askedArgs = askedAction.arguments as { target?: string; question?: string } | null;
+      const answeredArgs = answeredAction.arguments as { rawAnswer?: string } | null;
+      if (askedArgs?.target && askedArgs.question && answeredArgs?.rawAnswer) {
+        clarification = { target: askedArgs.target as CriterionId, question: askedArgs.question, rawAnswer: answeredArgs.rawAnswer };
+      }
+    }
+  }
+
   return {
     record: inputs.record,
     catalogue: inputs.catalogue,
@@ -129,6 +171,9 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
       queueReason: "",
     },
     previousRounds,
+    clarificationAsked,
+    clarification,
+    conversationId: convo?.id ?? null,
   };
 }
 
@@ -140,7 +185,8 @@ export async function persistRecommendation(
   applicationId: string,
   outcome: RecommendationOutcome,
   round: number,
-): Promise<{ recommendationId: string; reviewTaskId: string | null }> {
+  conversationId: string | null,
+): Promise<{ recommendationId: string | null; reviewTaskId: string | null }> {
   const now = new Date();
 
   const [app] = await db.select({ status: application.status }).from(application).where(eq(application.id, applicationId)).limit(1);
@@ -158,6 +204,114 @@ export async function persistRecommendation(
     .limit(1);
   if (openAppReview) {
     throw new Error("Cannot recommend while the application has an open review task.");
+  }
+
+  // A clarifying question, not a shortlist — nothing is presentable yet.
+  // Quotes still get written (price() is deterministic and ran regardless);
+  // no recommendation, review_task, or status change. The `_asked` insert is
+  // the race-safety boundary (db/schema/actions.ts's
+  // one_clarify_asked_per_application partial unique index): if another
+  // worker already asked for this application, `.onConflictDoNothing()`
+  // returns nothing and this whole attempt is discarded rather than writing
+  // a second, redundant audit trail.
+  if (outcome.pendingClarification) {
+    const clarification = outcome.pendingClarification;
+    await db.run(sql`begin`);
+    try {
+      for (const q of outcome.quotes) {
+        await db
+          .insert(quote)
+          .values({ applicationId, planId: q.planId, annualPremium: q.annualPremium, eligible: q.eligible, rank: q.rank, score: q.score })
+          .onConflictDoUpdate({
+            target: [quote.applicationId, quote.planId],
+            set: { annualPremium: q.annualPremium, eligible: q.eligible, rank: q.rank, score: q.score },
+          });
+      }
+
+      if (!conversationId) {
+        // Structurally shouldn't happen — loadRecommendationInputs forces
+        // clarificationAsked=true when there is no conversation to ask in,
+        // so `routeAfterVerify` should never have reached `clarify` here.
+        // Defensive only: there is nowhere to post the question, so this
+        // attempt is discarded exactly like a lost race.
+        await db.run(sql`commit`);
+        return { recommendationId: null, reviewTaskId: null };
+      }
+
+      const [asked] = await db
+        .insert(conversationAction)
+        .values({
+          conversationId,
+          actionType: "recommendation_clarify_asked",
+          arguments: { target: clarification.target, question: clarification.question },
+          subjectType: "application",
+          subjectId: applicationId,
+          status: "succeeded",
+          actorKind: "system",
+          completedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (!asked) {
+        await db.run(sql`commit`);
+        return { recommendationId: null, reviewTaskId: null };
+      }
+
+      // The mechanical call that produced the low-confidence shortlist this
+      // clarification is about — same condition as the full path below:
+      // never written for the pure deterministic fallback, since no model ran.
+      let modelRunId: string | null = null;
+      if (outcome.servedBy && !outcome.fellBackTo) {
+        const [run] = await db
+          .insert(modelRun)
+          .values({
+            purpose: "plan_recommendation",
+            provider: PROVIDER,
+            modelId: outcome.servedBy ?? MODEL_ID,
+            promptVersion: RECOMMENDATION_PROMPT_VERSION,
+            request: { applicationId, round },
+            response: { trace: outcome.trace, verifyFailed: outcome.verifyFailed },
+            latencyMs: outcome.latencyMs,
+            status: "ok",
+          })
+          .returning();
+        modelRunId = run.id;
+      }
+
+      // `clarification_required` — its own real status (db/schema/enums.ts),
+      // not buried in `output`, so it is exactly as supersedable as `proposed`
+      // once round 2 writes a real decision (see the widened query below).
+      await db.insert(aiDecision).values({
+        decisionType: "plan_recommendation",
+        subjectType: "application",
+        subjectId: applicationId,
+        modelRunId,
+        output: {
+          confidence: outcome.confidence,
+          uncertaintyReason: outcome.uncertaintyReason,
+          clarification: { ...clarification, promptVersion: CLARIFY_PROMPT_VERSION },
+          round,
+        },
+        summary: `clarification requested · round ${round} · ${clarification.target}`,
+        confidence: CONFIDENCE_VALUE[outcome.confidence],
+        uncertaintyReason: outcome.uncertaintyReason,
+        // Required by the schema's own low_confidence_needs_review CHECK
+        // (confidence < 0.75 must carry requiresReview) — does not imply a
+        // review_task exists; reviewTaskId stays null, this needs the
+        // applicant, not an advisor.
+        requiresReview: true,
+        status: "clarification_required",
+        reviewTaskId: null,
+        appliedToId: null,
+      });
+
+      await db.run(sql`commit`);
+    } catch (error) {
+      await db.run(sql`rollback`);
+      throw error;
+    }
+    return { recommendationId: null, reviewTaskId: null };
   }
 
   const gated = outcome.routedToReview;
@@ -229,11 +383,21 @@ export async function persistRecommendation(
       );
     }
 
-    // Anything the previous round proposed is no longer the live claim.
+    // Anything the previous round proposed is no longer the live claim —
+    // including a `clarification_required` decision this round's answer just
+    // resolved (whether or not confidence actually improved; either way this
+    // round is the current word on it).
     await db
       .update(aiDecision)
       .set({ status: "superseded" })
-      .where(and(eq(aiDecision.subjectType, "application"), eq(aiDecision.subjectId, applicationId), eq(aiDecision.decisionType, "plan_recommendation"), eq(aiDecision.status, "proposed")));
+      .where(
+        and(
+          eq(aiDecision.subjectType, "application"),
+          eq(aiDecision.subjectId, applicationId),
+          eq(aiDecision.decisionType, "plan_recommendation"),
+          inArray(aiDecision.status, ["proposed", "clarification_required"]),
+        ),
+      );
 
     // An informational quality check, not a gate — the applicant sees the
     // cards regardless (`announceRecommendationOutcome`,
@@ -337,7 +501,7 @@ export async function runRecommendation(
   const round = (row?.version ?? 0) + 1;
 
   const outcome = await runRecommendationGraph(inputs);
-  await persistRecommendation(applicationId, outcome, round);
+  await persistRecommendation(applicationId, outcome, round, inputs.conversationId);
   return outcome;
 }
 
@@ -363,15 +527,21 @@ export async function runRecommendation(
  */
 export function scheduleRecommendation(applicationId: string, options: { force?: boolean } = {}): void {
   after(async () => {
+    let outcome: RecommendationOutcome | null = null;
     try {
-      await runRecommendation(applicationId, options);
+      outcome = await runRecommendation(applicationId, options);
     } catch (error) {
       console.error("[recommendation] background run failed", applicationId, error);
       return;
     }
     let conversationId: string | null = null;
     try {
-      conversationId = await announceRecommendationOutcome(applicationId);
+      // A clarifying question, not a shortlist — a different message, and
+      // nothing to reveal yet (announceClarificationRequest,
+      // lib/ai/conversation-continuation.ts).
+      conversationId = outcome?.pendingClarification
+        ? await announceClarificationRequest(applicationId, outcome.pendingClarification.question)
+        : await announceRecommendationOutcome(applicationId);
     } catch (error) {
       console.error("[recommendation] announcing the outcome failed", applicationId, error);
     }
