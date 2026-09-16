@@ -1,8 +1,10 @@
 // `recommendationGate` — flag the shortlist for an INFORMATIONAL advisor
 // quality check, running in parallel with the applicant seeing the cards.
 //
-// Fires when the deterministic fallback ran, `verify` found a problem, or
-// confidence landed on `low` — `outcome.routedToReview` becomes `gated` in
+// Reached via `routeAfterVerify` (lib/ai/graph/nodes/clarify.ts), which is
+// the actual routing decision now — fallback, a verify failure, or a genuine
+// low confidence that has ALREADY had its one clarifying question (see
+// `clarify.ts`) all land here. `outcome.routedToReview` becomes `gated` in
 // `persistRecommendation` (lib/ai/recommendation-session.ts), which opens the
 // review_task. The applicant is never held back for it: withholding a plan
 // they might have accepted anyway is worse than a quiet audit trail, and the
@@ -23,9 +25,4 @@ export function recommendationGate(state: RecommendationStateType): Partial<Reco
     confidence: state.recoConfidence,
   });
   return {};
-}
-
-/** The conditional edge out of `verify`. */
-export function needsGate(state: RecommendationStateType): "gate" | "present" {
-  return state.fellBackTo != null || state.verifyFailed || state.recoConfidence === "low" ? "gate" : "present";
 }

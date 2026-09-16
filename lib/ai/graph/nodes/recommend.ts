@@ -55,6 +55,7 @@ function systemPrompt(ctx: ToolContext): string {
     "RULES",
     "- Every argument must be a value a tool actually accepts — one of the exact ids or enum members spelled out above for that tool. An invented value is rejected and tells you what you sent and what was expected; use that to correct it. The SAME wrong value sent again ends your turn.",
     "- Ground every plan choice in what the tools told you, never in what a plan's name suggests.",
+    "- Call suggest_default_weights before score_plans. It gives you a deterministic starting weight set for this applicant's cohort — you are not picking weights from nothing. score_plans will reject a call that ignores this baseline entirely.",
     "- Call propose_shortlist exactly once, when you have enough to decide.",
     "",
     "ANSWER FORMAT",
@@ -118,6 +119,8 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
     cohort: cohortLabel,
     flags,
     previousRounds: state.previousRounds,
+    enforceWeightBaseline: true,
+    suggestedWeights: null,
   };
 
   if (!isAgentEnabled()) return fallBack(state, "no model configured", []);
@@ -136,6 +139,20 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
       ? `This is round ${state.previousRounds.length + 1}. Call previous_rounds before re-offering anything already rejected.`
       : "This is round 1.",
   ];
+
+  // A prior round asked the applicant a clarifying question about exactly one
+  // of the closed criteria (lib/ai/graph/nodes/clarify.ts) and got an answer
+  // back — loaded fresh from the DB (lib/ai/recommendation-session.ts), never
+  // from graph memory. Their literal words are handed over verbatim; the
+  // agent may interpret them, but any figure it states from here still has to
+  // pass `verify`'s citation check same as always, so it cannot use this as
+  // licence to invent a number.
+  if (state.clarification) {
+    const { target, question, rawAnswer } = state.clarification;
+    transcriptLines.push(
+      `Earlier this application scored low confidence on "${target}". You asked the applicant: "${question}" — they answered: "${rawAnswer}". Treat this as their stated preference for ${target} specifically; do not infer facts they did not say, and do not ask another question.`,
+    );
+  }
 
   for (let step = 1; step <= MAX_TOOL_CALLS; step++) {
     const callsLeft = MAX_TOOL_CALLS - step + 1;

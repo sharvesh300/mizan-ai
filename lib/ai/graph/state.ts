@@ -26,7 +26,7 @@ import {
 } from "@/lib/assessment";
 import { emptyDraft, type IntakeDraft } from "@/lib/intake";
 import type { ConfidenceLevel } from "@/db/schema";
-import type { QuoteRow } from "@/lib/recommendation";
+import type { CriterionId, QuoteRow } from "@/lib/recommendation";
 
 /** Last-write-wins annotation — the only reducer shape this graph uses. */
 const latest = <T>(fallback: () => T) =>
@@ -111,6 +111,18 @@ export const AssessmentState = Annotation.Root({
   fellBackTo: latest<string | null>(() => null),
   /** Set when `verify` finds a figure with no matching observation. */
   verifyFailed: latest<boolean>(() => false),
+
+  /**
+   * Whether a clarifying question has EVER been asked for this application —
+   * loaded fresh from the `recommendation_clarify_asked` conversation_action
+   * row's existence (lib/ai/recommendation-session.ts's loadRecommendationInputs),
+   * never carried over in graph/checkpointer memory. See
+   * lib/ai/graph/nodes/clarify.ts for why this is the single durable gate
+   * against ever asking twice.
+   */
+  clarificationAsked: latest<boolean>(() => false),
+  /** The applicant's answer to that question, once given — also loaded fresh from the DB each round. */
+  clarification: latest<ClarificationAnswer | null>(() => null),
 });
 
 export type AssessmentStateType = typeof AssessmentState.State;
@@ -144,6 +156,16 @@ export type RecommendationTraceStep = {
 export type ShortlistPick = { planId: string; rank: number };
 export type ShortlistRejection = { planId: string; reason: string };
 
+/**
+ * A closed-vocabulary clarifying question — `target` is a `CriterionId`
+ * (lib/recommendation/types.ts), never a free field, so a clarification can
+ * only ever point at something the scoring engine already knows how to act
+ * on. See lib/ai/graph/nodes/clarify.ts.
+ */
+export type Clarification = { target: CriterionId; question: string };
+/** The durable form, loaded back from `conversation_action` rows — never from graph/checkpointer memory. */
+export type ClarificationAnswer = Clarification & { rawAnswer: string };
+
 export type RecommendationOutcome = {
   quotes: QuoteRow[];
   shortlist: ShortlistPick[];
@@ -157,6 +179,8 @@ export type RecommendationOutcome = {
   verifyFailed: boolean;
   /** True when `recommendationGate` interrupted — an advisor owns this before the applicant sees it. */
   routedToReview: boolean;
+  /** Set when `clarify` interrupted with a validated question instead — nothing is presentable yet. */
+  pendingClarification: Clarification | null;
   servedBy: string | null;
   latencyMs: number;
 };

@@ -14,7 +14,8 @@
 //                                                   └──> END  (clean — advance to quoting)
 //
 //   RECOMMENDATION (the record is clean)
-//     price ──> recommend ──> verify ──┬──> recommendationGate (interrupt: an advisor owns it)
+//     price ──> recommend ──> verify ──┬──> clarify           (interrupt: the applicant owns one question)
+//                                      ├──> recommendationGate (interrupt: an advisor owns it)
 //                                      └──> END  (present to the applicant)
 //
 // Intake is compiled and invoked separately from the other two because it is
@@ -33,13 +34,14 @@ import "server-only";
 import { END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 import { ask } from "./graph/nodes/ask";
 import { classify } from "./graph/nodes/classify";
+import { clarify, routeAfterVerify } from "./graph/nodes/clarify";
 import { confirm } from "./graph/nodes/confirm";
 import { converse, gaps } from "./graph/nodes/converse";
 import { gate } from "./graph/nodes/gate";
 import { narrate } from "./graph/nodes/narrate";
 import { price } from "./graph/nodes/price";
 import { recommend } from "./graph/nodes/recommend";
-import { needsGate, recommendationGate } from "./graph/nodes/recommendation-gate";
+import { recommendationGate } from "./graph/nodes/recommendation-gate";
 import { gated, route } from "./graph/nodes/route";
 import { validate } from "./graph/nodes/validate";
 import { verify } from "./graph/nodes/verify";
@@ -47,11 +49,13 @@ import {
   AssessmentState,
   IntakeState,
   type AssessmentOutcome,
+  type ClarificationAnswer,
   type RecommendationOutcome,
   type Turn,
 } from "./graph/state";
 import type { PreviousRound } from "./tools/plans";
 import type { PendingQuestion } from "./questions";
+import type { CriterionId } from "@/lib/recommendation";
 import {
   assignCohort,
   type AssessmentContext,
@@ -170,20 +174,22 @@ export async function runAssessment(input: {
 
 // Recommendation is a later phase of the SAME state assessment uses (see the
 // comment on `AssessmentState` in graph/state.ts) — it attaches `price` /
-// `recommend` / `verify` / `recommendationGate` onto that one annotation
-// rather than declaring a second, disjoint state. `record`, `catalogue` and
-// `cohort` are the very fields `validate`/`classify` already populated;
-// `recommend` reads the flags a declared need ran into off `verdict.flags`,
-// the same channel `route`/`gate` already read.
+// `recommend` / `verify` / `clarify` / `recommendationGate` onto that one
+// annotation rather than declaring a second, disjoint state. `record`,
+// `catalogue` and `cohort` are the very fields `validate`/`classify` already
+// populated; `recommend` reads the flags a declared need ran into off
+// `verdict.flags`, the same channel `route`/`gate` already read.
 const recommendationGraph = new StateGraph(AssessmentState)
   .addNode("price", price)
   .addNode("recommend", recommend)
   .addNode("verify", verify)
+  .addNode("clarify", clarify)
   .addNode("recommendationGate", recommendationGate)
   .addEdge(START, "price")
   .addEdge("price", "recommend")
   .addEdge("recommend", "verify")
-  .addConditionalEdges("verify", needsGate, { gate: "recommendationGate", present: END })
+  .addConditionalEdges("verify", routeAfterVerify, { clarify: "clarify", gate: "recommendationGate", present: END })
+  .addEdge("clarify", END)
   .addEdge("recommendationGate", END);
 
 /**
@@ -205,16 +211,32 @@ export async function runRecommendation(input: {
   cohort: CohortAssignment;
   verdict: Verdict;
   previousRounds: PreviousRound[];
+  /** Loaded fresh from `conversation_action` rows every call — never carried over in graph/checkpointer state. See lib/ai/graph/nodes/clarify.ts. */
+  clarificationAsked: boolean;
+  clarification: ClarificationAnswer | null;
 }): Promise<RecommendationOutcome> {
   const compiled = recommendationGraph.compile({ checkpointer: new MemorySaver() });
   const config = { configurable: { thread_id: crypto.randomUUID() } };
 
   const result = await compiled.invoke(input, config);
 
-  // `recommendationGate` interrupted, so the graph is paused rather than
-  // finished — same read as runAssessment's gate.
+  // Either `clarify` or `recommendationGate` interrupted, so the graph is
+  // paused rather than finished — same read as runAssessment's gate, just
+  // split two ways by inspecting the interrupt VALUE's shape: only `clarify`
+  // ever sets `kind: "clarify"` (a validated question); a rejected/failed
+  // clarification attempt interrupts with the same shape `recommendationGate`
+  // uses, so it is indistinguishable from — and handled identically to — an
+  // ordinary advisor gate.
   const snapshot = await compiled.getState(config);
-  const routedToReview = snapshot.tasks.some((task) => (task.interrupts ?? []).length > 0);
+  const interrupts = snapshot.tasks.flatMap((task) => task.interrupts ?? []);
+  const clarifyInterrupt = interrupts
+    .map((i) => i.value as { kind?: string; target?: string; question?: string } | undefined)
+    .find((v) => v?.kind === "clarify");
+  const routedToReview = interrupts.length > 0 && !clarifyInterrupt;
+  const pendingClarification =
+    clarifyInterrupt && clarifyInterrupt.target && clarifyInterrupt.question
+      ? { target: clarifyInterrupt.target as CriterionId, question: clarifyInterrupt.question }
+      : null;
 
   return {
     quotes: result.quotes ?? [],
@@ -228,6 +250,7 @@ export async function runRecommendation(input: {
     fellBackTo: result.fellBackTo ?? null,
     verifyFailed: result.verifyFailed ?? false,
     routedToReview,
+    pendingClarification,
     servedBy: result.servedBy ?? null,
     latencyMs: result.latencyMs ?? 0,
   };
