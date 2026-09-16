@@ -216,6 +216,13 @@ export const aiDecisionTypeEnum = [
 ] as const;
 export type AiDecisionType = (typeof aiDecisionTypeEnum)[number];
 
+// `clarification_required` is additive to the baseline: a recommendation round
+// that asked the applicant one clarifying question instead of proposing a
+// shortlist (lib/ai/graph/nodes/clarify.ts) needs its own resting state distinct
+// from `proposed` — it is not awaiting an advisor's approve/edit/reject, it is
+// awaiting the applicant's answer, and it must supersede cleanly once round 2
+// writes a real decision. SQLite stores these as text, so widening the tuple is
+// a TS-only change — no migration (same discipline reviewActionEnum documents).
 export const aiDecisionStatusEnum = [
   "proposed",
   "auto_accepted",
@@ -223,5 +230,6 @@ export const aiDecisionStatusEnum = [
   "edited",
   "rejected",
   "superseded",
+  "clarification_required",
 ] as const;
 export type AiDecisionStatus = (typeof aiDecisionStatusEnum)[number];

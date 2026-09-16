@@ -7,7 +7,8 @@
 // — so the reference is declared directly here.
 // =====================================================================
 
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { aiDecision } from "./ai-decision";
 import { actorKindEnum, actionStatusEnum } from "./enums";
 import { conversation, message } from "./conversation";
@@ -43,5 +44,17 @@ export const conversationAction = sqliteTable(
   (table) => [
     index("conversation_action_conversation_created_idx").on(table.conversationId, table.createdAt),
     index("conversation_action_subject_idx").on(table.subjectType, table.subjectId),
+    // At most one clarifying question, ever, per application — and at most one
+    // answer to it — enforced here rather than only in application logic, so
+    // two racing workers cannot both write one (lib/ai/graph/nodes/clarify.ts,
+    // app/applications/new/actions.ts's sendChatMessage). Same partial-unique-
+    // index pattern `one_live_recommendation` already uses on `recommendation`
+    // (db/schema/quote-recommendation.ts).
+    uniqueIndex("one_clarify_asked_per_application")
+      .on(table.subjectId)
+      .where(sql`${table.subjectType} = 'application' and ${table.actionType} = 'recommendation_clarify_asked'`),
+    uniqueIndex("one_clarify_answer_per_application")
+      .on(table.subjectId)
+      .where(sql`${table.subjectType} = 'application' and ${table.actionType} = 'recommendation_clarify_answered'`),
   ],
 );
