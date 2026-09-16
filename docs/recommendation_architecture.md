@@ -169,7 +169,8 @@ Two constraints drive this section:
 | `check_network_access` | `planId` | each expected provider: admitted / refused, and by which tier | Wraps `network_admits` + `admitsKey`. Network is access, not price. |
 | `estimate_annual_cost` | `planId`, `scenarioId` **(enum only)** | the basket used, its provenance, and the arithmetic per plan | The agent **names** a scenario from a closed list. It supplies no numbers. See §3.3. |
 | `previous_rounds` | — | prior shortlists, what the applicant rejected, and why | Round 2+ only. Stops the agent re-offering what was already refused. |
-| `score_plans` | `criteria[]` — each `{ criterionId (enum), weight }` | per plan: weighted score, rank, **per-criterion contribution** | The agent decides *what matters and how much*. Direction and arithmetic are not its call. See §3.4. |
+| `suggest_default_weights` | — | a deterministic, cohort-based starting weight set | The agent must call this before `score_plans`. It decides *from* a baseline, not from nothing. See §3.8. |
+| `score_plans` | `criteria[]` — each `{ criterionId (enum), weight }` | per plan: weighted score, rank, **per-criterion contribution** | The agent decides *what matters and how much*, **anchored to the §3.8 baseline**. Direction and arithmetic are not its call. See §3.4. |
 | `propose_shortlist` | `picks[]`, `rejections[]`, `confidence`, `uncertaintyReason` | validated proposal | Terminal. Ends the loop. Persistence is the caller's job. |
 
 ### 3.2 Where the line is drawn
@@ -232,6 +233,14 @@ plans comparable on out-of-pocket exposure — a modelling assumption, labelled 
 one, shown to the person being asked to trust it. A hidden assumption is the same
 failure as an invented one.
 
+> **Reviewed.** These two constants stay fixed. Raised as an open question
+> during a design review of §3.4/§7's criteria (calibration, curve shapes,
+> basket sizes) — resolved to keep them as-is, since they're already declared
+> and cited as a modelling assumption rather than silently baked in. That
+> review's other findings (§3.4's `total_annual_outlay` → `out_of_pocket_exposure`
+> rename, `annual_limit_headroom` → `annual_limit`, and §3.8's weight baseline)
+> did lead to code changes; the unit costs did not.
+
 A `scenarioId` outside the enum, or one whose selectability predicate fails
 (`HIGH_OUTPATIENT` with no chronic condition on the record), is rejected before
 the tool runs — see §3.5.
@@ -245,13 +254,31 @@ premium is better"* must be unstateable.
 | `criterionId` | Direction (fixed) | Relevant only when |
 |---|---|---|
 | `premium_cost` | lower is better | always |
-| `total_annual_outlay` | lower is better | always |
+| `out_of_pocket_exposure` | lower is better | always |
 | `need_coverage` | higher is better | ≥1 declared need |
 | `waiting_period_fit` | higher is better | ≥1 declared need with a horizon |
 | `network_access` | higher is better | ≥1 expected provider declared |
 | `chronic_depth` | higher is better | ≥1 declared condition |
-| `annual_limit_headroom` | higher is better | always |
+| `annual_limit` | higher is better | always |
 | `dental_optical` | higher is better | declared as a priority |
+
+`out_of_pocket_exposure` (formerly `total_annual_outlay`) is deliberately scoped
+to the deductible actually spent plus the co-pay on what's left — **it excludes
+the premium**. The original shape included premium in both this criterion and
+`premium_cost`; on the seeded catalogue the two came out correlated at r≈0.98
+under `MEDIUM_OUTPATIENT`, because premium dominates the total and the
+deductible/co-pay term is small next to it. Weighting both was close to
+weighting premium twice. Scoped to the non-premium term, the two are
+independent: two plans with the same premium can still differ here on
+deductible and co-pay design.
+
+`annual_limit` (formerly `annual_limit_headroom`) is renamed to what it actually
+computes: the plan's stated annual limit, full stop. "Headroom" implies limit
+*minus* expected utilisation, which nothing here subtracts — computing real
+headroom would need a utilisation estimate this criterion has no basis for (it
+runs once across the whole panel, not against one cost scenario), so the name
+was fixed to match the arithmetic rather than the arithmetic stretched to match
+the name.
 
 Weight rules, enforced by the tool:
 
@@ -264,6 +291,10 @@ Weight rules, enforced by the tool:
 - **relevance gate:** a criterion whose predicate is unmet is rejected. Weighting
   `chronic_depth` for an applicant with no declared condition is the model
   reaching for a fact the record does not contain.
+- **baseline-anchored:** `score_plans` also requires a `suggest_default_weights`
+  baseline established earlier in the round, at least one submitted criterion
+  overlapping it, and every overlapping criterion's weight within `±0.15` of its
+  baseline value. See §3.8.
 
 ### 3.5 Deterministic validation of every agent choice
 
@@ -273,7 +304,7 @@ exception, and not silence.
 
 | Agent choice | Vocabulary | Deterministic check | On failure |
 |---|---|---|---|
-| which tool | the 9 registered names | name exists in the registry | error: unknown tool + the list |
+| which tool | the 10 registered names | name exists in the registry | error: unknown tool + the list |
 | `planIds` | live `plan.id` values | every id exists in the catalogue | error naming the unknown ids |
 | `needId` | this application's `application_need` rows | id belongs to **this** application | error: unknown need for this record |
 | `benefitClasses` | `benefitClassEnum` | membership | error + the valid set |
@@ -345,6 +376,53 @@ RECOMMENDATION (the record is clean)
 `runAssessment()` does. Persistence lives in `lib/ai/recommendation-session.ts`,
 keeping the whole thing runnable against `fixtures.json` with no database — the
 same split that lets `db/seed/check-assessment.ts` exist.
+
+### 3.8 Default weight baseline — `lib/recommendation/default-weights.ts`
+
+Every other closed vocabulary in this section is a set the agent picks *from*.
+Weight assignment was the one exception: within the `score_plans` bounds
+(§3.4), the agent could land on any distribution with no deterministic floor
+under it — free judgement, not selection from a vocabulary. `suggest_default_weights`
+closes that gap the same way everything else here is closed: not by removing
+the agent's judgement, but by giving it something concrete to start from and
+bounding how far it may move away.
+
+```
+suggest_default_weights (no args)
+  → COHORT_PRIORITY[cohort] ?? DEFAULT_PRIORITY
+  → filtered to criteria relevant to THIS record (same isRelevant gate §3.4 uses)
+  → top BASELINE_MAX_CRITERIA (3) kept, renormalised to sum to 1
+  → { cohort, weights, rule }  — ctx.suggestedWeights set for this round
+```
+
+This is not new judgement. `COHORT_PRIORITY` is the same rationale
+`assignCohort` (`lib/assessment/cohort.ts`) already states in prose per
+cohort, and `pickByCohort` (`lib/recommendation/fallback.ts`) already reads as
+a tie-break rule — a third reading of one underlying judgement about what each
+cohort turns on, not a fourth one invented here.
+
+`score_plans` then enforces the anchor:
+
+- **must have a baseline.** Calling `score_plans` before `suggest_default_weights`
+  this round is rejected outright.
+- **must overlap it.** At least one submitted `criterionId` must be one the
+  baseline named — the agent may not discard the baseline entirely and
+  substitute its own distribution from scratch.
+- **must stay within `WEIGHT_DELTA` (±0.15)** of the baseline weight, for every
+  submitted criterion the baseline also named. A criterion the agent adds that
+  the baseline did NOT name is unconstrained by delta (still subject to the
+  normal relevance/bounds checks) — the baseline anchors the agent's read of
+  what the *cohort* already says matters; it does not forbid noticing something
+  cohort-level reasoning can't see (a specific named provider, a specific
+  declared priority).
+
+`enforceWeightBaseline` on `ToolContext` gates this — `true` for the real
+shortlist-building loop (`recommend.ts`), `false` for read-only exploratory
+re-scoring (`plan-converse.ts`, §5's "the conversation does not stop"). An
+applicant asking *"what if price mattered a lot more"* about a plan already
+recommended should be answerable without first re-deriving a cohort baseline
+for it — the baseline exists to anchor a **commitment**, not to constrain
+every hypothetical the applicant might ask about afterward.
 
 ---
 
