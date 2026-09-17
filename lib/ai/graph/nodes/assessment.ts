@@ -1,28 +1,53 @@
-// `narrate` — the only place a model touches an assessment, and it may only
-// change words.
+// All nodes for the assessment graph: validate, classify, narrate, route, gate.
 //
-// The templated reasons the rules produce are accurate and slightly robotic:
-// they name the plan, the wait and the horizon, but they do not say what that
-// combination means for THIS applicant. A broker working a queue under time
-// pressure reads the first line and decides whether to open the record, so the
-// first line is worth writing properly.
+//   ASSESSMENT (the application now exists)
+//     validate ──> classify ──> narrate ──> route ──┬──> gate (interrupt: an advisor owns it)
+//                                                   └──> END  (clean — advance to quoting)
 //
-// WHAT IT CANNOT DO: fire a flag, drop one, change a severity, change a
-// cohort, or move an application. It is handed the rules that already fired
-// and returns wording for those codes and no others — anything it invents is
-// discarded here rather than being persisted and argued with later. If the
-// call fails, or there is no API key at all, every templated reason stands and
-// the assessment is unchanged. That is why the node has no error path back
-// into the graph: there is nothing it can break.
+// Validation and classification evaluate deterministic rules; narration lets
+// an LLM refine the wording for the broker without altering rules or severities;
+// route and gate determine human-review status and priority.
 
 import "server-only";
 import { z } from "zod";
+import { interrupt } from "@langchain/langgraph";
 import { isAgentEnabled, structuredCall } from "@/lib/ai/openrouter";
 import type { AssessmentStateType } from "@/lib/ai/graph/state";
-import { aed, BUDGET_CEILING, plansInBudget } from "@/lib/assessment";
+import {
+  aed,
+  assignCohort,
+  BUDGET_CEILING,
+  plansInBudget,
+  verdict,
+} from "@/lib/assessment";
+import { evaluateConstraintRules } from "@/lib/assessment/constraint-rules";
+import { evaluateRecordRules } from "@/lib/assessment/record-rules";
 
 /** Bumped whenever the prompt below changes, so `model_run` rows stay comparable. */
 export const ASSESSMENT_PROMPT_VERSION = "assess-v1";
+
+/**
+ * `validate` — is this record internally coherent?
+ * Evaluates record-level integrity rules deterministically.
+ */
+export function validate(state: AssessmentStateType): Partial<AssessmentStateType> {
+  return {
+    fired: evaluateRecordRules({ record: state.record, context: state.context }),
+  };
+}
+
+/**
+ * `classify` — assign cohort and evaluate plan constraint rules.
+ * Deterministic arithmetic over the declared needs and panel coverage.
+ */
+export function classify(state: AssessmentStateType): Partial<AssessmentStateType> {
+  const constraint = evaluateConstraintRules({ record: state.record, catalogue: state.catalogue });
+
+  return {
+    cohort: assignCohort(state.record),
+    fired: [...state.fired, ...constraint],
+  };
+}
 
 const narrationSchema = z.object({
   flags: z
@@ -58,6 +83,9 @@ ANSWER FORMAT
 Return ONE JSON object, nothing else. No code fences, no commentary.
 {"flags": [{"ruleCode": "...", "reason": "..."}], "queueLine": "..."}`;
 
+/**
+ * `narrate` — the only place a model touches an assessment, and it may only change words.
+ */
 export async function narrate(state: AssessmentStateType): Promise<Partial<AssessmentStateType>> {
   if (!isAgentEnabled() || state.fired.length === 0) return {};
 
@@ -108,15 +136,10 @@ export async function narrate(state: AssessmentStateType): Promise<Partial<Asses
   try {
     result = await structuredCall({ system: SYSTEM, user, schema: narrationSchema, temperature: 0.3 });
   } catch (error) {
-    // The templated reasons are already correct and complete. A failed
-    // narration costs the broker a blunter sentence, never a missing flag.
     console.error("[assessment] narration failed", error);
     return {};
   }
 
-  // Only codes that actually fired. Anything else the model returned is a
-  // flag it made up, and a made-up flag in a broker's queue is worse than a
-  // plain one.
   const byCode = new Map(result.value.flags.map((f) => [f.ruleCode, f.reason.trim()]));
   const narrated: string[] = [];
   const fired = state.fired.map((entry) => {
@@ -133,4 +156,37 @@ export async function narrate(state: AssessmentStateType): Promise<Partial<Asses
     servedBy: result.servedBy,
     latencyMs: result.latencyMs,
   };
+}
+
+/**
+ * `route` — where this application goes, and how sure the system is allowed to sound about it.
+ */
+export function route(state: AssessmentStateType): Partial<AssessmentStateType> {
+  const computed = verdict(state.fired, state.record);
+
+  return {
+    verdict: {
+      ...computed,
+      queueReason: state.queueLine ?? computed.queueReason,
+    },
+  };
+}
+
+/** Does a person have to look at this before it is priced? */
+export function gated(state: AssessmentStateType): "gate" | "clear" {
+  return state.verdict && state.verdict.gate !== "auto" ? "gate" : "clear";
+}
+
+/**
+ * `gate` — hand the application to a human and stop via LangGraph interrupt().
+ */
+export function gate(state: AssessmentStateType): Partial<AssessmentStateType> {
+  interrupt({
+    applicationId: state.record.applicationId,
+    reason: state.verdict?.queueReason,
+    priorityScore: state.verdict?.priorityScore,
+    gate: state.verdict?.gate,
+  });
+
+  return {};
 }

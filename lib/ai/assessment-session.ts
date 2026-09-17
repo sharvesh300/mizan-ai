@@ -43,7 +43,7 @@ import {
 } from "@/db/schema";
 import { runAssessment } from "@/lib/ai/graph";
 import type { AssessmentOutcome } from "@/lib/ai/graph/state";
-import { ASSESSMENT_PROMPT_VERSION } from "@/lib/ai/graph/nodes/narrate";
+import { ASSESSMENT_PROMPT_VERSION } from "@/lib/ai/graph/nodes/assessment";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
 import { admitsKey, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
 
