@@ -1,27 +1,11 @@
-// `planConverse` — free-text Q&A about an already-shortlisted panel,
+// Free-text Q&A about an already-shortlisted panel,
 // answered through the SAME tool registry the recommendation agent used to
 // build it (lib/ai/tools/plans.ts), in READ-ONLY mode: every tool except
 // `propose_shortlist`. Nothing reachable from here writes a new shortlist —
 // only `pickPlan`/`rejectShortlist` (app/applications/new/actions.ts) do
-// that, and only off an explicit button or the `intent` this node hands
+// that, and only off an explicit button or the `intent` this module hands
 // back to the session (lib/ai/plan-chat-session.ts) to act on. The model
 // never calls either directly.
-//
-// Same JSON action loop as lib/ai/graph/nodes/recommend.ts, a much smaller
-// budget — a question ("why not Comprehensive?") needs at most one or two
-// lookups, not a full re-derivation of the shortlist — terminating on a
-// pseudo-tool `answer` rather than a registry tool: `{ reply, intent,
-// planId?, reason? }`. `intent` is a closed vocabulary the session acts on
-// after its own independent validation (a chosen planId still has to pass
-// eligibility there); this node's job is only to decide what it is.
-//
-// Same citation discipline as `verify` (lib/ai/graph/nodes/verify.ts): a
-// figure in `reply` that traces to nothing the tools actually returned this
-// turn — or was already part of the live recommendation's own vetted
-// reasoning — is not trustworthy prose. Rather than try to surgically edit a
-// sentence, the whole reply is swapped for the recommendation's own
-// member-facing reasoning, which is guaranteed grounded because `verify`
-// already checked it once.
 
 import "server-only";
 import { z } from "zod";
@@ -149,9 +133,6 @@ function groundedResult(
   servedBy: string | null,
   latencyMs: number,
 ): PlanConverseResult {
-  // "Already known" figures — the panel summary and the vetted member
-  // reasoning handed into the prompt — plus everything an actual tool call
-  // returned this turn. A number outside that set is not grounded.
   const observed = new Set<string>([
     ...input.quotes.flatMap((q) => numbersIn(String(q.annualPremium))),
     ...numbersIn(input.memberReasoning),
@@ -236,8 +217,6 @@ export async function planConverse(input: PlanConverseInput): Promise<PlanConver
     transcriptLines.push(`Step ${step}: you called "${tool}" with ${JSON.stringify(args ?? {})} — OK.\nObservation: ${summarise(result)}`);
   }
 
-  // Budget exhausted without an answer — one forced final turn before giving
-  // up to the deterministic fallback, same shape as recommend.ts's own.
   try {
     const called = await structuredCall({ system: forcedAnswerSystemPrompt(), user: transcriptLines.join("\n\n"), schema: stepSchema, temperature: 0.3 });
     servedBy = called.servedBy;
@@ -253,7 +232,7 @@ export async function planConverse(input: PlanConverseInput): Promise<PlanConver
     });
     if (parsed.success) return groundedResult(parsed.data, input, trace, servedBy, totalLatency);
   } catch {
-    // Falls through — the forced turn was already a last resort.
+    // Falls through
   }
 
   return fallbackResult("tool-call budget exhausted with no answer given", input, trace, servedBy, totalLatency);

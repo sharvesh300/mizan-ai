@@ -21,7 +21,7 @@
 import "server-only";
 import { db } from "@/db/client";
 import { conversationAction } from "@/db/schema";
-import { planConverse, type PlanConverseResult } from "@/lib/ai/graph/nodes/plan-converse";
+import { planConverse, type PlanConverseResult } from "@/lib/ai/plan-converse";
 import { sayAssistant } from "@/lib/ai/intake-session";
 import { loadRecommendationInputs } from "@/lib/ai/recommendation-session";
 import type { ToolContext } from "@/lib/ai/tools/plans";
