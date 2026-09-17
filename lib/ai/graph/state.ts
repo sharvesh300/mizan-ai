@@ -93,6 +93,8 @@ export const AssessmentState = Annotation.Root({
   queueLine: latest<string | null>(() => null),
   servedBy: latest<string | null>(() => null),
   latencyMs: latest<number>(() => 0),
+  /** When true, the unified policy pipeline halts after routing instead of running recommendation. */
+  assessmentOnly: latest<boolean>(() => false),
 
   // -- Recommendation phase (lib/ai/graph/nodes/{price,recommend,verify,recommendation-gate}.ts) --
   /** Prior rounds' rejected shortlists, read by the `previous_rounds` tool. Round 2+ only. */

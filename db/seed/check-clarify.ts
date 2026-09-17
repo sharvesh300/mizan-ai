@@ -65,6 +65,7 @@ function baseState(catalogue: Catalogue, patch: Partial<RecommendationStateType>
     verifyFailed: false,
     clarificationAsked: false,
     clarification: null,
+    assessmentOnly: false,
     ...patch,
   };
 }

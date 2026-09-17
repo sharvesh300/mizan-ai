@@ -106,153 +106,20 @@ export async function runIntakeTurn(input: {
   };
 }
 
-const assessmentGraph = new StateGraph(AssessmentState)
-  .addNode("validate", validate)
-  .addNode("classify", classify)
-  .addNode("narrate", narrate)
-  .addNode("route", route)
-  .addNode("gate", gate)
-  .addEdge(START, "validate")
-  .addEdge("validate", "classify")
-  .addEdge("classify", "narrate")
-  .addEdge("narrate", "route")
-  .addConditionalEdges("route", gated, { gate: "gate", clear: END })
-  .addEdge("gate", END);
-
-/**
- * Assess one application: validate the record, classify it, let the model
- * improve the broker's wording, then decide where it goes.
- *
- * Returns the whole outcome rather than writing anything — persistence is the
- * caller's job (lib/ai/assessment-session.ts), the same division intake uses,
- * so this stays runnable against the supplied fixtures with no database at all.
- */
-export async function runAssessment(input: {
-  record: AssessmentRecord;
-  catalogue: Catalogue;
-  context: AssessmentContext;
-}): Promise<AssessmentOutcome> {
-  const compiled = assessmentGraph.compile({ checkpointer: new MemorySaver() });
-  const config = { configurable: { thread_id: crypto.randomUUID() } };
-
-  const result = await compiled.invoke(input, config);
-
-  // `gate` interrupted, so the graph is paused rather than finished. The
-  // verdict is already in state — the pause is the signal, not the payload.
-  const snapshot = await compiled.getState(config);
-  const routedToReview = snapshot.tasks.some((task) => (task.interrupts ?? []).length > 0);
-
-  // A verdict is only absent if the graph was cut short before `route`, which
-  // nothing in the topology does. Falling back keeps the return type honest
-  // rather than asserting a non-null through it.
-  const verdict = result.verdict ?? {
-    flags: [],
-    confidence: "low" as const,
-    uncertaintyReason: "Assessment did not complete.",
-    gate: "needs_review" as const,
-    priorityScore: 100,
-    queueReason: "Assessment did not complete — needs a person.",
-  };
-
-  return {
-    cohort: result.cohort ?? assignCohort(input.record),
-    ...verdict,
-    routedToReview,
-    narrated: result.narrated ?? [],
-    servedBy: result.servedBy ?? null,
-    latencyMs: result.latencyMs ?? 0,
-  };
-}
-
-// Recommendation is a later phase of the SAME state assessment uses (see the
-// comment on `AssessmentState` in graph/state.ts) — it attaches `price` /
-// `recommend` / `verify` / `clarify` / `recommendationGate` onto that one
-// annotation rather than declaring a second, disjoint state. `record`,
-// `catalogue` and `cohort` are the very fields `validate`/`classify` already
-// populated; `recommend` reads the flags a declared need ran into off
-// `verdict.flags`, the same channel `route`/`gate` already read.
-const recommendationGraph = new StateGraph(AssessmentState)
-  .addNode("price", price)
-  .addNode("recommend", recommend)
-  .addNode("verify", verify)
-  .addNode("clarify", clarify)
-  .addNode("recommendationGate", recommendationGate)
-  .addEdge(START, "price")
-  .addEdge("price", "recommend")
-  .addEdge("recommend", "verify")
-  .addConditionalEdges("verify", routeAfterVerify, { clarify: "clarify", gate: "recommendationGate", present: END })
-  .addEdge("clarify", END)
-  .addEdge("recommendationGate", END);
-
-/**
- * Price all three plans, let the agent build a shortlist over its tool
- * budget (or fall back to the deterministic ranking), then verify it.
- *
- * Returns the whole outcome rather than writing anything — persistence is the
- * caller's job (lib/ai/recommendation-session.ts), the same division
- * assessment and intake both use, so this stays runnable against the
- * supplied fixtures with no database at all.
- *
- * `cohort` and `verdict` are the assessment's own — recommendation does not
- * re-derive them, it reads what `runAssessment` already produced and the
- * caller already persisted.
- */
-export async function runRecommendation(input: {
-  record: AssessmentRecord;
-  catalogue: Catalogue;
-  cohort: CohortAssignment;
-  verdict: Verdict;
-  previousRounds: PreviousRound[];
-  /** Loaded fresh from `conversation_action` rows every call — never carried over in graph/checkpointer state. See lib/ai/graph/nodes/clarify.ts. */
-  clarificationAsked: boolean;
-  clarification: ClarificationAnswer | null;
-}): Promise<RecommendationOutcome> {
-  const compiled = recommendationGraph.compile({ checkpointer: new MemorySaver() });
-  const config = { configurable: { thread_id: crypto.randomUUID() } };
-
-  const result = await compiled.invoke(input, config);
-
-  // Either `clarify` or `recommendationGate` interrupted, so the graph is
-  // paused rather than finished — same read as runAssessment's gate, just
-  // split two ways by inspecting the interrupt VALUE's shape: only `clarify`
-  // ever sets `kind: "clarify"` (a validated question); a rejected/failed
-  // clarification attempt interrupts with the same shape `recommendationGate`
-  // uses, so it is indistinguishable from — and handled identically to — an
-  // ordinary advisor gate.
-  const snapshot = await compiled.getState(config);
-  const interrupts = snapshot.tasks.flatMap((task) => task.interrupts ?? []);
-  const clarifyInterrupt = interrupts
-    .map((i) => i.value as { kind?: string; target?: string; question?: string } | undefined)
-    .find((v) => v?.kind === "clarify");
-  const routedToReview = interrupts.length > 0 && !clarifyInterrupt;
-  const pendingClarification =
-    clarifyInterrupt && clarifyInterrupt.target && clarifyInterrupt.question
-      ? { target: clarifyInterrupt.target as CriterionId, question: clarifyInterrupt.question }
-      : null;
-
-  return {
-    quotes: result.quotes ?? [],
-    shortlist: result.shortlist ?? [],
-    rejections: result.rejections ?? [],
-    brokerReasoning: result.brokerReasoning ?? "",
-    memberReasoning: result.memberReasoning ?? "",
-    confidence: result.recoConfidence ?? "low",
-    uncertaintyReason: result.recoUncertaintyReason ?? null,
-    trace: result.trace ?? [],
-    fellBackTo: result.fellBackTo ?? null,
-    verifyFailed: result.verifyFailed ?? false,
-    routedToReview,
-    pendingClarification,
-    servedBy: result.servedBy ?? null,
-    latencyMs: result.latencyMs ?? 0,
-  };
-}
-
 /**
  * Unified post-submission policy pipeline graph:
- * Runs assessment (validate -> classify -> narrate -> route), and if the record
- * is clear of blocking/review flags, seamlessly flows into recommendation
- * (price -> recommend -> verify).
+ *
+ * Combines assessment and recommendation into a single topological pipeline:
+ *
+ *   START ──> [verdict exists? price : validate]
+ *                 │
+ *                 ├─> price ──> recommend ──> verify ──┬──[clarify]─> clarify (interrupt: applicant) ──> END
+ *                 │                                    ├──[gate]────> recommendationGate (interrupt: advisor) ──> END
+ *                 │                                    └──[present]─> END
+ *                 │
+ *                 └─> validate ──> classify ──> narrate ──> route ──┬──[gated]─────────> gate (interrupt: advisor) ──> END
+ *                                                                   ├──[assessmentOnly]─> END
+ *                                                                   └──[clear]─────────> price (flows into recommendation above)
  */
 export const policyPipelineGraph = new StateGraph(AssessmentState)
   .addNode("validate", validate)
@@ -265,13 +132,18 @@ export const policyPipelineGraph = new StateGraph(AssessmentState)
   .addNode("verify", verify)
   .addNode("clarify", clarify)
   .addNode("recommendationGate", recommendationGate)
-  .addEdge(START, "validate")
+  .addConditionalEdges(START, (state) => (state.verdict ? "price" : "validate"))
   .addEdge("validate", "classify")
   .addEdge("classify", "narrate")
   .addEdge("narrate", "route")
-  .addConditionalEdges("route", gated, {
+  .addConditionalEdges("route", (state) => {
+    if (gated(state) === "gate") return "gate";
+    if (state.assessmentOnly) return END;
+    return "price";
+  }, {
     gate: "gate",
-    clear: "price",
+    price: "price",
+    [END]: END,
   })
   .addEdge("gate", END)
   .addEdge("price", "recommend")
@@ -285,7 +157,7 @@ export const policyPipelineGraph = new StateGraph(AssessmentState)
   .addEdge("recommendationGate", END);
 
 /**
- * Run the unified policy pipeline end-to-end:
+ * Run the unified policy pipeline:
  * Evaluates record integrity and constraint rules, and if clean of flags,
  * quotes all plans and executes the recommendation agent.
  */
@@ -293,9 +165,12 @@ export async function runPolicyPipeline(input: {
   record: AssessmentRecord;
   catalogue: Catalogue;
   context: AssessmentContext;
+  cohort?: CohortAssignment | null;
+  verdict?: Verdict | null;
   previousRounds?: PreviousRound[];
   clarificationAsked?: boolean;
   clarification?: ClarificationAnswer | null;
+  assessmentOnly?: boolean;
 }): Promise<PolicyPipelineOutcome> {
   const compiled = policyPipelineGraph.compile({ checkpointer: new MemorySaver() });
   const config = { configurable: { thread_id: crypto.randomUUID() } };
@@ -303,9 +178,12 @@ export async function runPolicyPipeline(input: {
   const result = await compiled.invoke(
     {
       ...input,
+      cohort: input.cohort ?? null,
+      verdict: input.verdict ?? null,
       previousRounds: input.previousRounds ?? [],
       clarificationAsked: input.clarificationAsked ?? false,
       clarification: input.clarification ?? null,
+      assessmentOnly: input.assessmentOnly ?? false,
     },
     config,
   );
@@ -379,5 +257,49 @@ export async function runPolicyPipeline(input: {
     assessment,
     recommendation,
   };
+}
+
+/**
+ * Assess one application: validate the record, classify it, let the model
+ * improve the broker's wording, then decide where it goes.
+ * Runs assessment only through the unified policy pipeline.
+ */
+export async function runAssessment(input: {
+  record: AssessmentRecord;
+  catalogue: Catalogue;
+  context: AssessmentContext;
+}): Promise<AssessmentOutcome> {
+  const outcome = await runPolicyPipeline({ ...input, assessmentOnly: true });
+  return outcome.assessment;
+}
+
+/**
+ * Price all plans, let the agent build a shortlist, and verify it.
+ * Runs recommendation through the unified policy pipeline starting at price.
+ */
+export async function runRecommendation(input: {
+  record: AssessmentRecord;
+  catalogue: Catalogue;
+  cohort: CohortAssignment;
+  verdict: Verdict;
+  previousRounds: PreviousRound[];
+  clarificationAsked: boolean;
+  clarification: ClarificationAnswer | null;
+}): Promise<RecommendationOutcome> {
+  const outcome = await runPolicyPipeline({
+    record: input.record,
+    catalogue: input.catalogue,
+    context: { today: "", openApplicationsForPerson: 0 },
+    cohort: input.cohort,
+    verdict: input.verdict,
+    previousRounds: input.previousRounds,
+    clarificationAsked: input.clarificationAsked,
+    clarification: input.clarification,
+  });
+
+  if (!outcome.recommendation) {
+    throw new Error("Recommendation pipeline failed to produce an outcome.");
+  }
+  return outcome.recommendation;
 }
 
