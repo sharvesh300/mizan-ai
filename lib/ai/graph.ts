@@ -1,9 +1,9 @@
 // Every graph in the system is wired here, and only here.
 //
-// Nodes live in ./graph/nodes/*.ts — each one a plain function of state, with
-// its own reasoning written next to it. This file holds the topology, so the
-// shape of the system is readable in one screen instead of being inferred from
-// whichever module happened to define the last node.
+// Nodes live in ./graph/nodes/{intake,assessment,recommendation,clarify}.ts.
+// This file holds the topology, so the shape of the system is readable in one
+// screen instead of being inferred from whichever module happened to define
+// the last node.
 //
 //   INTAKE (the applicant is typing)
 //     converse ──> gaps ──┬──> ask     (interrupt: hand control back to the human)
@@ -32,19 +32,10 @@
 
 import "server-only";
 import { END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
-import { ask } from "./graph/nodes/ask";
-import { classify } from "./graph/nodes/classify";
+import { ask, confirm, converse, gaps } from "./graph/nodes/intake";
+import { classify, gate, gated, narrate, route, validate } from "./graph/nodes/assessment";
+import { price, recommend, recommendationGate, verify } from "./graph/nodes/recommendation";
 import { clarify, routeAfterVerify } from "./graph/nodes/clarify";
-import { confirm } from "./graph/nodes/confirm";
-import { converse, gaps } from "./graph/nodes/converse";
-import { gate } from "./graph/nodes/gate";
-import { narrate } from "./graph/nodes/narrate";
-import { price } from "./graph/nodes/price";
-import { recommend } from "./graph/nodes/recommend";
-import { recommendationGate } from "./graph/nodes/recommendation-gate";
-import { gated, route } from "./graph/nodes/route";
-import { validate } from "./graph/nodes/validate";
-import { verify } from "./graph/nodes/verify";
 import {
   AssessmentState,
   IntakeState,

@@ -1,25 +1,20 @@
-// `recommend` — the agent's tool-call loop.
+// All nodes for the recommendation graph: price, recommend, verify, recommendationGate.
 //
-// `lib/ai/openrouter.ts` is explicit that the free models in the chain
-// advertise neither strict structured output nor reliable tool calling, so
-// this is a JSON action loop built on the same `structuredCall` every other
-// node uses — not native function calling. Each turn the model emits
-// `{thought, tool, args}`; the runtime validates the call against the
-// vocabulary tables in lib/ai/tools/plans.ts, executes it, and appends the
-// observation to the transcript. The loop ends when the model calls
-// `propose_shortlist`, or falls back to the deterministic path
-// (lib/recommendation/fallback.ts) on a model failure, the same invalid
-// value sent 3 times, or the call budget running out — see fallBack() below.
+//   RECOMMENDATION (the record is clean)
+//     price ──> recommend ──> verify ──┬──> clarify           (interrupt: the applicant owns one question)
+//                                      ├──> recommendationGate (interrupt: an advisor owns it)
+//                                      └──> END  (present to the applicant)
 //
-// Point OPENROUTER_MODEL at a tool-capable model later and the same registry
-// binds natively via bindTools; the tools are the contract, the transport
-// is not (same note lib/ai/openrouter.ts makes about the intake agent).
+// Pricing is deterministic. Recommend executes the agentic tool-loop over closed
+// catalogues and baselines. Verify enforces hard eligibility and citation integrity.
+// RecommendationGate flags edge cases for review.
 
 import "server-only";
 import { z } from "zod";
+import { interrupt } from "@langchain/langgraph";
 import { isAgentEnabled, structuredCall } from "@/lib/ai/openrouter";
 import { describeTools, runTool, TOOL_NAMES, type ToolContext, type ToolResult } from "@/lib/ai/tools/plans";
-import { fallbackRecommend } from "@/lib/recommendation";
+import { fallbackRecommend, isEligible, priceAllPlans } from "@/lib/recommendation";
 import type { RecommendationStateType, RecommendationTraceStep } from "@/lib/ai/graph/state";
 
 /** Bumped whenever the prompt below changes, so `model_run` rows stay comparable. */
@@ -27,14 +22,15 @@ export const RECOMMENDATION_PROMPT_VERSION = "recommend-v2";
 
 /** Doc §3.6: max 8 tool calls per round. */
 const MAX_TOOL_CALLS = 8;
-/**
- * Rejections are counted per (tool, error) pair, not per tool — a model that
- * tries `chronic_preexisting`, gets told the value it sent was wrong, and
- * then sends the corrected value has fixed its mistake and should not be
- * punished for having made it once. The same wrong guess sent twice in a row
- * is a model that did not read the error, and 3 of those ends the round.
- */
 const MAX_SAME_ERROR_REJECTIONS = 3;
+
+/**
+ * `price` — one quote row per plan, before the agent sees anything.
+ * Deterministic, no model.
+ */
+export function price(state: RecommendationStateType): Partial<RecommendationStateType> {
+  return { quotes: priceAllPlans(state.catalogue, state.record) };
+}
 
 const stepSchema = z.object({
   thought: z.string().catch(""),
@@ -88,12 +84,6 @@ const outcomeFromProposal = (data: ProposalData, trace: RecommendationTraceStep[
   latencyMs,
 });
 
-/**
- * The final forced turn once the ordinary budget is spent (doc §3.6's budget
- * cap): the tool list narrows to `propose_shortlist` alone so the model
- * decides from what it already gathered instead of reaching for one more
- * lookup it does not have room for.
- */
 function forcedProposeSystemPrompt(ctx: ToolContext): string {
   return [
     "Your tool-call budget for this round is spent. Decide now, using only what you already learned in this conversation — do not ask for anything further.",
@@ -106,10 +96,10 @@ function forcedProposeSystemPrompt(ctx: ToolContext): string {
   ].join("\n");
 }
 
+/**
+ * `recommend` — the agent's tool-call loop.
+ */
 export async function recommend(state: RecommendationStateType): Promise<Partial<RecommendationStateType>> {
-  // record/catalogue/cohort/flags are the assessment's own — read straight
-  // off the shared state rather than re-derived (see the comment on
-  // AssessmentState in lib/ai/graph/state.ts).
   const cohortLabel = state.cohort?.cohort ?? "unassigned";
   const flags = state.verdict?.flags ?? [];
   const ctx: ToolContext = {
@@ -127,8 +117,6 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
 
   const system = systemPrompt(ctx);
   const trace: RecommendationTraceStep[] = [];
-  // Keyed by "tool::error" — a wrong guess corrected on the next turn is not
-  // punished; the SAME wrong guess sent again is what ends the round.
   const rejectionCounts = new Map<string, number>();
   let servedBy: string | null = null;
   let totalLatency = 0;
@@ -140,13 +128,6 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
       : "This is round 1.",
   ];
 
-  // A prior round asked the applicant a clarifying question about exactly one
-  // of the closed criteria (lib/ai/graph/nodes/clarify.ts) and got an answer
-  // back — loaded fresh from the DB (lib/ai/recommendation-session.ts), never
-  // from graph memory. Their literal words are handed over verbatim; the
-  // agent may interpret them, but any figure it states from here still has to
-  // pass `verify`'s citation check same as always, so it cannot use this as
-  // licence to invent a number.
   if (state.clarification) {
     const { target, question, rawAnswer } = state.clarification;
     transcriptLines.push(
@@ -156,9 +137,6 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
 
   for (let step = 1; step <= MAX_TOOL_CALLS; step++) {
     const callsLeft = MAX_TOOL_CALLS - step + 1;
-    // Pressure applied to the message sent, not to the permanent transcript
-    // — a reminder appended to transcriptLines every turn from here on would
-    // pile up rather than just nudge the next decision.
     const reminder = callsLeft <= 3 ? `\n\n${callsLeft} call(s) left in your tool budget. If you have enough to decide, call propose_shortlist now.` : "";
 
     let called;
@@ -201,8 +179,6 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
     transcriptLines.push(`Step ${step}: you called "${tool}" with ${JSON.stringify(args ?? {})} — OK.\nObservation: ${summarise(result)}`);
   }
 
-  // Budget exhausted without a shortlist — one last forced turn, narrowed to
-  // propose_shortlist alone, before giving up to the deterministic fallback.
   try {
     const called = await structuredCall({
       system: forcedProposeSystemPrompt(ctx),
@@ -226,22 +202,12 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
       return outcomeFromProposal(result.data as ProposalData, trace, servedBy, totalLatency);
     }
   } catch {
-    // Falls through to the deterministic fallback below — the forced turn
-    // was already a last resort, so a second failure here is not worth a
-    // third round-trip.
+    // Falls through to fallback
   }
 
   return fallBack(state, "tool-call budget exhausted with no shortlist proposed", trace, servedBy, totalLatency);
 }
 
-/**
- * No key, unparseable output, repeated validation failure, or budget
- * exhausted — the deterministic recommender ranks on need coverage +
- * MEDIUM_OUTPATIENT cost, writes the shortlist with `confidence: low`, and
- * `recommendationGate` (the next node) routes it to an advisor before the
- * applicant ever sees it. Same principle lib/intake.ts holds for the scripted
- * chat: the app runs end to end with no model configured.
- */
 function fallBack(
   state: RecommendationStateType,
   reason: string,
@@ -262,4 +228,61 @@ function fallBack(
     servedBy,
     latencyMs,
   };
+}
+
+/** Every currency figure or waiting-period month worth citing, pulled out of prose. */
+function numbersIn(text: string): string[] {
+  return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/g)].map((m) => m[0].replace(/,/g, ""));
+}
+
+/**
+ * `verify` — deterministic checks over what the agent (or the fallback)
+ * proposed, before anything is persisted or shown to anyone.
+ */
+export function verify(state: RecommendationStateType): Partial<RecommendationStateType> {
+  const validShortlist = state.shortlist.filter((pick) => {
+    const plan = state.catalogue.plans.find((p) => p.id === pick.planId);
+    return plan != null && isEligible(plan, state.record);
+  });
+  const stripped = state.shortlist.filter((pick) => !validShortlist.some((v) => v.planId === pick.planId));
+
+  let uncited: string[] = [];
+  if (state.fellBackTo == null) {
+    const observed = new Set(state.trace.flatMap((step) => (step.validation === "ok" ? numbersIn(step.observationSummary) : [])));
+    const cited = numbersIn(`${state.brokerReasoning ?? ""} ${state.memberReasoning ?? ""}`);
+    uncited = cited.filter((n) => !observed.has(n));
+  }
+
+  const verifyFailed = stripped.length > 0 || uncited.length > 0 || validShortlist.length === 0;
+
+  return {
+    shortlist: validShortlist.length > 0 ? validShortlist : state.shortlist,
+    rejections:
+      stripped.length > 0
+        ? [
+            ...state.rejections,
+            ...stripped.map((s) => ({ planId: s.planId, reason: "Stripped at verification — does not cover a declared need." })),
+          ]
+        : state.rejections,
+    verifyFailed,
+    recoConfidence: verifyFailed ? "low" : state.recoConfidence,
+    recoUncertaintyReason: verifyFailed
+      ? uncited.length > 0
+        ? `A figure in the reasoning (${uncited.join(", ")}) does not trace back to a tool observation.`
+        : "One or more shortlisted plans failed the eligibility check at verification."
+      : state.recoUncertaintyReason,
+  };
+}
+
+/**
+ * `recommendationGate` — flag the shortlist for an INFORMATIONAL advisor
+ * quality check, running in parallel with the applicant seeing the cards.
+ */
+export function recommendationGate(state: RecommendationStateType): Partial<RecommendationStateType> {
+  interrupt({
+    applicationId: state.record.applicationId,
+    reason: state.fellBackTo ?? (state.verifyFailed ? "verification failed" : `confidence: ${state.recoConfidence}`),
+    confidence: state.recoConfidence,
+  });
+  return {};
 }

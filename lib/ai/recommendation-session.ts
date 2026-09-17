@@ -62,7 +62,7 @@ import { announceClarificationRequest, announceRecommendationOutcome, latestConv
 import { runRecommendation as runRecommendationGraph } from "@/lib/ai/graph";
 import type { ClarificationAnswer } from "@/lib/ai/graph/state";
 import type { RecommendationOutcome } from "@/lib/ai/graph/state";
-import { RECOMMENDATION_PROMPT_VERSION } from "@/lib/ai/graph/nodes/recommend";
+import { RECOMMENDATION_PROMPT_VERSION } from "@/lib/ai/graph/nodes/recommendation";
 import { CLARIFY_PROMPT_VERSION } from "@/lib/ai/graph/nodes/clarify";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
 import type { PreviousRound } from "@/lib/ai/tools/plans";
