@@ -41,6 +41,7 @@ import {
   IntakeState,
   type AssessmentOutcome,
   type ClarificationAnswer,
+  type PolicyPipelineOutcome,
   type RecommendationOutcome,
   type Turn,
 } from "./graph/state";
@@ -246,3 +247,137 @@ export async function runRecommendation(input: {
     latencyMs: result.latencyMs ?? 0,
   };
 }
+
+/**
+ * Unified post-submission policy pipeline graph:
+ * Runs assessment (validate -> classify -> narrate -> route), and if the record
+ * is clear of blocking/review flags, seamlessly flows into recommendation
+ * (price -> recommend -> verify).
+ */
+export const policyPipelineGraph = new StateGraph(AssessmentState)
+  .addNode("validate", validate)
+  .addNode("classify", classify)
+  .addNode("narrate", narrate)
+  .addNode("route", route)
+  .addNode("gate", gate)
+  .addNode("price", price)
+  .addNode("recommend", recommend)
+  .addNode("verify", verify)
+  .addNode("clarify", clarify)
+  .addNode("recommendationGate", recommendationGate)
+  .addEdge(START, "validate")
+  .addEdge("validate", "classify")
+  .addEdge("classify", "narrate")
+  .addEdge("narrate", "route")
+  .addConditionalEdges("route", gated, {
+    gate: "gate",
+    clear: "price",
+  })
+  .addEdge("gate", END)
+  .addEdge("price", "recommend")
+  .addEdge("recommend", "verify")
+  .addConditionalEdges("verify", routeAfterVerify, {
+    clarify: "clarify",
+    gate: "recommendationGate",
+    present: END,
+  })
+  .addEdge("clarify", END)
+  .addEdge("recommendationGate", END);
+
+/**
+ * Run the unified policy pipeline end-to-end:
+ * Evaluates record integrity and constraint rules, and if clean of flags,
+ * quotes all plans and executes the recommendation agent.
+ */
+export async function runPolicyPipeline(input: {
+  record: AssessmentRecord;
+  catalogue: Catalogue;
+  context: AssessmentContext;
+  previousRounds?: PreviousRound[];
+  clarificationAsked?: boolean;
+  clarification?: ClarificationAnswer | null;
+}): Promise<PolicyPipelineOutcome> {
+  const compiled = policyPipelineGraph.compile({ checkpointer: new MemorySaver() });
+  const config = { configurable: { thread_id: crypto.randomUUID() } };
+
+  const result = await compiled.invoke(
+    {
+      ...input,
+      previousRounds: input.previousRounds ?? [],
+      clarificationAsked: input.clarificationAsked ?? false,
+      clarification: input.clarification ?? null,
+    },
+    config,
+  );
+
+  const snapshot = await compiled.getState(config);
+  const interrupts = snapshot.tasks.flatMap((task) => task.interrupts ?? []);
+
+  const isAssessmentGated = interrupts.some((i) => {
+    const v = i.value as { gate?: string; priorityScore?: number } | undefined;
+    return v?.gate !== undefined;
+  });
+
+  const clarifyInterrupt = interrupts
+    .map((i) => i.value as { kind?: string; target?: string; question?: string } | undefined)
+    .find((v) => v?.kind === "clarify");
+
+  const isRecommendationGated = interrupts.length > 0 && !isAssessmentGated && !clarifyInterrupt;
+
+  const verdict = result.verdict ?? {
+    flags: [],
+    confidence: "low" as const,
+    uncertaintyReason: "Assessment did not complete.",
+    gate: "needs_review" as const,
+    priorityScore: 100,
+    queueReason: "Assessment did not complete — needs a person.",
+  };
+
+  const assessment: AssessmentOutcome = {
+    cohort: result.cohort ?? assignCohort(input.record),
+    ...verdict,
+    routedToReview: isAssessmentGated,
+    narrated: result.narrated ?? [],
+    servedBy: result.servedBy ?? null,
+    latencyMs: result.latencyMs ?? 0,
+  };
+
+  let recommendation: RecommendationOutcome | null = null;
+  if (!isAssessmentGated && result.quotes && result.quotes.length > 0) {
+    const pendingClarification =
+      clarifyInterrupt && clarifyInterrupt.target && clarifyInterrupt.question
+        ? { target: clarifyInterrupt.target as CriterionId, question: clarifyInterrupt.question }
+        : null;
+
+    recommendation = {
+      quotes: result.quotes,
+      shortlist: result.shortlist ?? [],
+      rejections: result.rejections ?? [],
+      brokerReasoning: result.brokerReasoning ?? "",
+      memberReasoning: result.memberReasoning ?? "",
+      confidence: result.recoConfidence ?? "low",
+      uncertaintyReason: result.recoUncertaintyReason ?? null,
+      trace: result.trace ?? [],
+      fellBackTo: result.fellBackTo ?? null,
+      verifyFailed: result.verifyFailed ?? false,
+      routedToReview: isRecommendationGated,
+      pendingClarification,
+      servedBy: result.servedBy ?? null,
+      latencyMs: result.latencyMs ?? 0,
+    };
+  }
+
+  let phase: PolicyPipelineOutcome["phase"] = "recommended";
+  if (isAssessmentGated || isRecommendationGated) {
+    phase = "gated_for_review";
+  } else if (clarifyInterrupt) {
+    phase = "clarification_required";
+  }
+
+  return {
+    phase,
+    assessment,
+    recommendation,
+  };
+}
+

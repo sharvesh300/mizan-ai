@@ -185,6 +185,12 @@ export type RecommendationOutcome = {
   latencyMs: number;
 };
 
+export type PolicyPipelineOutcome = {
+  phase: "gated_for_review" | "clarification_required" | "recommended";
+  assessment: AssessmentOutcome;
+  recommendation: RecommendationOutcome | null;
+};
+
 export type Turn = {
   /** What the assistant says back, in its own words. */
   reply: string;
