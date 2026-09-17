@@ -1,18 +1,14 @@
-// `converse` — hear what they said, reply like a person, work out what the
-// application still needs, and ask only for that.
+// All nodes for the intake graph: converse, gaps, ask, confirm.
 //
-// ONE CALL PER TURN. Reading the message, replying to it and choosing what to
-// ask next are the same act of understanding; splitting them made the reply
-// ignorant of the questions printed underneath it, and doubled the latency on
-// free models that are slow already.
+//   INTAKE (the applicant is typing)
+//     converse ──> gaps ──┬──> ask     (interrupt: hand control back to the human)
+//                         └──> confirm (nothing missing — recap and submit)
 //
-// WHAT THE MODEL DOES NOT DECIDE: whether a required field can be skipped
-// (`missingFields` is deterministic), what a value means (the same `validate`
-// the web form uses re-parses everything), and which control a known field
-// uses (`controlFor`). It decides understanding and wording — the parts a
-// person is actually better at.
+// Reading the message, replying to it and proposing next questions are unified
+// in `converse`. `ask` and `confirm` are deterministic terminals.
 
 import "server-only";
+import { interrupt } from "@langchain/langgraph";
 import {
   fieldByKey,
   fieldCatalogue,
@@ -24,7 +20,9 @@ import {
   type ExtractedValue,
 } from "@/lib/ai/fields";
 import { structuredCall } from "@/lib/ai/openrouter";
+import { buildQuestion } from "@/lib/ai/questions";
 import type { AcceptedValue, IntakeStateType } from "@/lib/ai/graph/state";
+import { summarise } from "@/lib/intake-chat";
 import type { IntakeDraft } from "@/lib/intake";
 
 const renderTranscript = (transcript: IntakeStateType["transcript"]) =>
@@ -93,15 +91,8 @@ ${fieldCatalogue()}`;
 /**
  * One model call: understand, reply, propose questions. Then validate
  * everything it claimed against the deterministic parsers.
- *
- * On any failure this returns empty-handed rather than throwing — `ask` still
- * has the scripted wording to fall back on, so a bad model turn costs the
- * applicant a less chatty question, never their place in the conversation.
  */
 export async function converse(state: IntakeStateType): Promise<Partial<IntakeStateType>> {
-  // A questionnaire submission is already structured — its answers were mapped
-  // to fields by the caller, and re-reading the transcript would only re-derive
-  // what is already recorded.
   const missing = missingFields(state.draft, new Set(state.settled)).slice(0, 6);
 
   if (state.skipExtraction && missing.length === 0) return { reply: "", accepted: [], rejected: [] };
@@ -124,8 +115,6 @@ export async function converse(state: IntakeStateType): Promise<Partial<IntakeSt
 
   const accepted: AcceptedValue[] = [];
   const rejected: ExtractedValue[] = [];
-  // What the parser refused, in its words — the applicant is told, rather than
-  // being re-asked the same question with no hint that their answer bounced.
   const retries: string[] = [];
   let draft = state.draft;
 
@@ -133,8 +122,6 @@ export async function converse(state: IntakeStateType): Promise<Partial<IntakeSt
     const field = fieldByKey(value.fieldKey);
     if (!field) continue;
 
-    // A gating field with no textual basis at all (empty rawSpan, inferred)
-    // is genuinely fabricated — reject it without giving it to the validator.
     const rawSpanPresent = value.rawSpan.trim().length > 0;
     if (value.inferred && !rawSpanPresent && GATED_FIELD_KEYS.has(value.fieldKey)) {
       rejected.push(value);
@@ -145,10 +132,6 @@ export async function converse(state: IntakeStateType): Promise<Partial<IntakeSt
       continue;
     }
 
-    // The LLM already did the semantic work ("my daughter" → "child",
-    // "I don't want anything expensive" → "low"). The validator checks the
-    // pre-normalised value is in-enum / in-range and writes it to the draft.
-    // It does NOT parse English — that is the LLM's job.
     const applied = field.validate(draft, value.value, value.rawSpan);
     if (!applied.ok) {
       rejected.push(value);
@@ -156,18 +139,12 @@ export async function converse(state: IntakeStateType): Promise<Partial<IntakeSt
       continue;
     }
 
-    // Re-emitting a value already on the draft would write a second extraction
-    // row saying the same thing. The transcript only grows, so without this the
-    // audit trail fills with duplicates of the applicant's first answer.
     if (JSON.stringify(applied.draft) === JSON.stringify(draft)) continue;
 
     draft = applied.draft;
     accepted.push({
       ...value,
       valueText: applied.valueText,
-      // rawSpan === valueText only when the applicant stated the normalised
-      // form verbatim (e.g. typed "child" exactly). For everything else the
-      // LLM did the normalisation — mark it as such for the replay path.
       method: value.rawSpan.trim() === applied.valueText ? "stated" : "normalised",
     });
   }
@@ -186,4 +163,32 @@ export async function converse(state: IntakeStateType): Promise<Partial<IntakeSt
 /** Deterministic: does this draft still need anything? */
 export function gaps(state: IntakeStateType): "ask" | "confirm" {
   return missingFields(state.draft, new Set(state.settled)).length > 0 ? "ask" : "confirm";
+}
+
+/**
+ * `ask` — turn the model's proposals into the questionnaire the applicant sees,
+ * then hand control to the human via interrupt().
+ */
+export function ask(state: IntakeStateType): Partial<IntakeStateType> {
+  const missing = missingFields(state.draft, new Set(state.settled)).slice(0, 5);
+
+  const questions = missing.map((field) =>
+    buildQuestion(
+      field.key,
+      state.draft,
+      state.proposed.find((p) => p.fieldKey === field.key),
+    ),
+  );
+
+  interrupt({ questions });
+
+  return { questions };
+}
+
+/**
+ * `confirm` — nothing outstanding. Recap deterministic draft and ask for confirmation.
+ */
+export function confirm(state: IntakeStateType): Partial<IntakeStateType> {
+  const lead = state.reply ? `${state.reply}\n\n` : "";
+  return { recap: `${lead}${summarise(state.draft)}\n\nShall I send this over to an advisor?` };
 }
