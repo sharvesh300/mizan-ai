@@ -6,6 +6,7 @@ import { ChatAutoscroll } from "@/components/chat-autoscroll";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatQuestionnaire } from "@/components/chat-questionnaire";
 import { ChatRefresh } from "@/components/chat-refresh";
+import { TradeOffCard } from "@/components/trade-off-card";
 import { PageHeader } from "@/components/page-header";
 import { PlanCard } from "@/components/plan-card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -14,7 +15,7 @@ import { Message, MessageAvatar, MessageContent, MessageGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { db } from "@/db/client";
 import { conversation, conversationQuestion, message } from "@/db/schema";
-import { isQuestionnairePayload, isRecommendationClarifyPayload } from "@/lib/ai/intake-session";
+import { isQuestionnairePayload, isRecommendationClarifyPayload, isRecommendationTradeOffPayload } from "@/lib/ai/intake-session";
 import { getActiveShortlist } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
@@ -60,6 +61,13 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   // nothing extra needs rendering here beyond suppressing the spinner below:
   // the applicant is being asked something, not waiting on a background job.
   const clarifyPending = isRecommendationClarifyPayload(openPayload);
+  // The trade-off question (lib/ai/graph/nodes/tradeoff.ts) — unlike a
+  // clarification, this one renders a card of its own below the bubble,
+  // because the answer is a choice between two stated options rather than
+  // anything the applicant has to compose. It stops rendering the moment
+  // they answer: their reply becomes the last message, so `openPayload` is
+  // null on the next render — the same mechanism the questionnaire uses.
+  const tradeOff = isRecommendationTradeOffPayload(openPayload) ? openPayload : null;
   const suggestions =
     !questionnaire && openPayload && typeof openPayload === "object" ? ((openPayload as { suggestions?: string[] }).suggestions ?? []) : [];
 
@@ -72,7 +80,8 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
   // recommendation ever runs, so there is nothing "still working" about it —
   // and excludes `clarifyPending`, where the system is waiting on the
   // applicant, not the other way around.
-  const working = Boolean(convo.applicationId) && !done && !waitingOnAdvisor && !clarifyPending && (!shortlist || shortlist.pendingRound);
+  const working =
+    Boolean(convo.applicationId) && !done && !waitingOnAdvisor && !clarifyPending && !tradeOff && (!shortlist || shortlist.pendingRound);
 
   const initials = user.fullName
     .split(" ")
@@ -97,15 +106,17 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
                 : "Your cover is active — this conversation is saved with your application."
               : waitingOnAdvisor
                 ? "An advisor has this now. We'll be back with you here."
-                : clarifyPending
-                  ? "One quick question, so we can get this right."
-                  : shortlist && !shortlist.pendingRound
-                    ? "We've got a plan for you — have a look below."
-                    : working
-                      ? "Working out the best plan for you — one moment."
-                      : answered > 0
-                        ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
-                        : "Say as much or as little as you like — everything is saved as you go."
+                : tradeOff
+                  ? "There's a trade-off here only you can make — have a look."
+                  : clarifyPending
+                    ? "One quick question, so we can get this right."
+                    : shortlist && !shortlist.pendingRound
+                      ? "We've got a plan for you — have a look below."
+                      : working
+                        ? "Working out the best plan for you — one moment."
+                        : answered > 0
+                          ? `${answered} question${answered === 1 ? "" : "s"} answered so far. Everything is saved as you go.`
+                          : "Say as much or as little as you like — everything is saved as you go."
           }
         />
       </div>
@@ -150,7 +161,17 @@ export default async function ChatIntakePage(props: PageProps<"/applications/new
             </div>
           ) : null}
 
-          {shortlist && !shortlist.pendingRound ? (
+          {tradeOff ? (
+            <div className="mt-4 ps-10">
+              <TradeOffCard conversationId={id} options={tradeOff.options} />
+            </div>
+          ) : null}
+
+          {/* While the trade-off question is open, the shortlist card stays
+              down: the applicant is being asked to resolve a conflict, and
+              offering "choose this plan" beside it invites them to answer a
+              different question than the one on screen. */}
+          {shortlist && !shortlist.pendingRound && !tradeOff ? (
             <div className="mt-4 ps-10">
               <PlanCard
                 conversationId={id}
