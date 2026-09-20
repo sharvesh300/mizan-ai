@@ -43,7 +43,16 @@ import { structuredCall } from "@/lib/ai/openrouter";
 import { CRITERION_IDS, isCriterionRelevant, type CriterionId } from "@/lib/recommendation";
 import type { RecommendationStateType, RecommendationTraceStep } from "@/lib/ai/graph/state";
 
-export const CLARIFY_PROMPT_VERSION = "clarify-v1";
+export const CLARIFY_PROMPT_VERSION = "clarify-v2";
+
+/**
+ * Below this, the weight set driving the shortlist rests on preferences we are
+ * not sure the applicant actually holds — and unlike a low-confidence
+ * RECOMMENDATION, that is a question's natural shape: we know exactly which
+ * criterion we are unsure about, and one answer fixes it for every future
+ * round. See `weakestWeightTarget` below.
+ */
+export const WEIGHT_CONFIDENCE_FLOOR = 0.5;
 
 const clarifySchema = z.object({ target: z.string(), question: z.string().min(1) });
 
@@ -85,12 +94,48 @@ type ClarifyContext = {
 function candidateTargets(state: RecommendationStateType): CriterionId[] {
   const relevant = CRITERION_IDS.filter((id) => isCriterionRelevant(id, state.record));
   const weighted = scorePlansTargets(state.trace);
-  return weighted.size > 0 ? relevant.filter((id) => weighted.has(id)) : relevant;
+  const narrowed = weighted.size > 0 ? relevant.filter((id) => weighted.has(id)) : relevant;
+
+  // A weight-confidence clarification is not an open question. We know which
+  // criterion is resting on a shaky signal, so the target is decided here,
+  // deterministically, and the model is left with only the wording. Falls
+  // through to the open list if that criterion turns out not to be a legal
+  // target at all.
+  if (isWeightTriggered(state)) {
+    const target = weakestWeightTarget(state);
+    if (target && narrowed.includes(target)) return [target];
+  }
+  return narrowed;
+}
+
+/** True when the recommendation itself was fine and it is the WEIGHTS we are unsure of. */
+function isWeightTriggered(state: RecommendationStateType): boolean {
+  return state.recoConfidence !== "low" && state.weightConfidence < WEIGHT_CONFIDENCE_FLOOR;
+}
+
+/**
+ * The criterion whose weight moved most on the least certain evidence:
+ * `|shift| x (1 - mean signal confidence)`. Both halves matter — an uncertain
+ * signal that barely moved anything is not worth a question, and a confident
+ * signal that moved a lot is not in doubt.
+ */
+export function weakestWeightTarget(state: RecommendationStateType): CriterionId | null {
+  let worst: { id: CriterionId; score: number } | null = null;
+  for (const e of state.weightExplanation) {
+    if (e.shift === 0 || e.drivenBy.length === 0) continue;
+    const meanConfidence = e.drivenBy.reduce((sum, sig) => sum + sig.confidence, 0) / e.drivenBy.length;
+    const score = Math.abs(e.shift) * (1 - meanConfidence);
+    if (score > 0 && (worst == null || score > worst.score)) worst = { id: e.criterionId, score };
+  }
+  return worst?.id ?? null;
 }
 
 function buildClarifyContext(state: RecommendationStateType): ClarifyContext {
+  const target = isWeightTriggered(state) ? weakestWeightTarget(state) : null;
   return {
-    uncertaintyReason: state.recoUncertaintyReason ?? "no reason given",
+    uncertaintyReason: target
+      ? `The shortlist itself is sound, but the weight given to "${target}" rests on a preference we are not confident the applicant actually stated.`
+      : state.recoUncertaintyReason ?? "no reason given",
     candidateTargets: candidateTargets(state),
     provisionalShortlist: state.shortlist,
     // Deliberately narrow — no brokerReasoning/memberReasoning, no raw tool
@@ -159,10 +204,24 @@ export function validateClarification(candidate: { target: string; question: str
   return null;
 }
 
-/** The conditional edge out of `verify` — clarify is reachable only when genuinely uncertain and never asked before. */
+/**
+ * The conditional edge out of `verify` — clarify is reachable only when
+ * genuinely uncertain and never asked before.
+ *
+ *   fallback / verify failure          -> gate. A question to the applicant
+ *                                         fixes neither a model failure nor a
+ *                                         hallucinated figure.
+ *   low recommendation confidence      -> clarify, or gate if already asked.
+ *   confident recommendation built on
+ *     low-confidence WEIGHTS           -> clarify, or gate if already asked.
+ *                                         The shortlist may be a perfectly
+ *                                         sound answer to a question we are
+ *                                         not sure we were asked.
+ */
 export function routeAfterVerify(state: RecommendationStateType): "clarify" | "gate" | "present" {
   if (state.fellBackTo != null || state.verifyFailed) return "gate";
   if (state.recoConfidence === "low") return state.clarificationAsked ? "gate" : "clarify";
+  if (isWeightTriggered(state)) return state.clarificationAsked ? "gate" : "clarify";
   return "present";
 }
 

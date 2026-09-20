@@ -18,6 +18,7 @@ import { z } from "zod";
 import { admitsKey, clearsInTime, covers, waitMonths, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
 import {
   buildScenario,
+  calculateDynamicWeights,
   estimateAnnualCost,
   isEligible,
   isScenarioSelectable,
@@ -26,7 +27,8 @@ import {
   COST_SCENARIO_IDS,
   CRITERION_IDS,
   WEIGHT_DELTA,
-  type CriterionWeight,
+  type DynamicWeightResult,
+  type PreferenceSignal,
 } from "@/lib/recommendation";
 import { benefitClassEnum, type BenefitClass, type ConfidenceLevel, type FlagSeverity } from "@/db/schema";
 
@@ -43,23 +45,30 @@ export type ToolContext = {
   flags: Flag[];
   previousRounds: PreviousRound[];
   /**
-   * True only for the real shortlist-building loop (recommend.ts) — gates
-   * `score_plans` behind `suggest_default_weights` and the delta rule below.
+   * True only for the real shortlist-building loop (recommendation.ts) — gates
+   * `score_plans` behind `get_dynamic_weights` and the delta rule below.
    * False for read-only exploratory re-scoring (plan-converse.ts): an
    * applicant asking "what if price mattered a lot more" about an
-   * already-recommended plan should be answerable without first re-deriving
-   * a cohort baseline for it.
+   * already-recommended plan should be answerable without being held to the
+   * weights the recommendation was built on.
    */
   enforceWeightBaseline: boolean;
+  /** This applicant's live preference signals, for the lazy derivation below. */
+  preferenceSignals: PreferenceSignal[];
   /**
-   * Set by `suggest_default_weights` the first time it's called this round;
-   * read by `score_plans` when `enforceWeightBaseline` is true. The one
-   * deliberately mutable field on this context — every tool call in a round
-   * shares the same `ToolContext` object, so this is how `score_plans` knows
-   * a baseline was actually established earlier in THIS round, without
-   * re-parsing it back out of the trace's truncated observation summaries.
+   * The derived weight set for this round — `calculateDynamicWeights`'s
+   * output, computed by the `weights` node (lib/ai/graph/nodes/weights.ts)
+   * BEFORE the tool loop starts, so the agent is handed weights rather than
+   * picking them.
+   *
+   * Deliberately mutable, and the only mutable field here: every tool call in
+   * a round shares one `ToolContext`, so when a caller supplies no weight set
+   * (plan-converse) `get_dynamic_weights` derives one and caches it here. That
+   * is also how `score_plans` knows the agent actually asked for the weights
+   * it is being held to, without re-parsing them out of the trace's truncated
+   * observation summaries.
    */
-  suggestedWeights: CriterionWeight[] | null;
+  dynamicWeights: DynamicWeightResult | null;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };
@@ -72,7 +81,7 @@ export const TOOL_NAMES = [
   "check_network_access",
   "estimate_annual_cost",
   "previous_rounds",
-  "suggest_default_weights",
+  "get_dynamic_weights",
   "score_plans",
   "propose_shortlist",
 ] as const;
@@ -304,17 +313,41 @@ function previousRoundsTool(ctx: ToolContext): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// 8. suggest_default_weights — a deterministic starting point, not a free pick
+// 8. get_dynamic_weights — derived from policy + preference, not picked
 // ---------------------------------------------------------------------------
 
-function suggestDefaultWeightsTool(ctx: ToolContext): ToolResult {
-  const weights = suggestDefaultWeights(ctx.record, ctx.cohort);
-  ctx.suggestedWeights = weights;
+/**
+ * Returns the weight set the `weights` node already derived, with the
+ * explanation of which stated preference moved which criterion — the agent is
+ * meant to READ that and use it in `brokerReasoning`, not to re-decide it.
+ *
+ * Derives one on the spot when the caller supplied none (plan-converse, whose
+ * graph never runs the `weights` node), so this tool answers in every context
+ * the registry is exposed in.
+ */
+function getDynamicWeightsTool(ctx: ToolContext): ToolResult {
+  if (ctx.dynamicWeights == null) {
+    const base = suggestDefaultWeights(ctx.record, ctx.cohort);
+    ctx.dynamicWeights = calculateDynamicWeights(base, ctx.preferenceSignals, ctx.record);
+  }
+  const { weights, confidence, explanation } = ctx.dynamicWeights;
+
   return ok({
     cohort: ctx.cohort,
     weights,
+    confidence,
+    // Trimmed to what the agent can act on: which criterion moved, how far,
+    // and the applicant's own words behind it. Strength/confidence arithmetic
+    // is the engine's business, not the agent's.
+    derivedFrom: explanation.map((e) => ({
+      criterionId: e.criterionId,
+      baseWeight: e.baseWeight,
+      shift: Math.round(e.shift * 100) / 100,
+      finalWeight: e.finalWeight,
+      statedPreferences: e.drivenBy.map((s) => `${s.direction} (${s.source}): ${s.reason}`),
+    })),
     rule: ctx.enforceWeightBaseline
-      ? `score_plans must include at least one of these criteria, each within ±${WEIGHT_DELTA} of the weight shown here. You may add further relevant criteria of your own alongside them, up to 5 total.`
+      ? `These weights were derived from this applicant's cohort and their own stated preferences. score_plans must include at least one of these criteria, each within ±${WEIGHT_DELTA} of the weight shown here. You may add further relevant criteria of your own alongside them, up to 5 total.`
       : "Informational in this read-only conversation — score_plans is not weight-restricted here.",
   });
 }
@@ -334,21 +367,21 @@ function scorePlansTool(ctx: ToolContext, args: unknown): ToolResult {
   if (!parsed.success) return err(issuesToMessage(parsed.error, args));
 
   if (ctx.enforceWeightBaseline) {
-    if (ctx.suggestedWeights == null) {
-      return err("call suggest_default_weights first — score_plans needs a baseline to weigh your criteria against.");
+    if (ctx.dynamicWeights == null) {
+      return err("call get_dynamic_weights first — score_plans needs the derived weight set to weigh your criteria against.");
     }
-    const baseline = new Map(ctx.suggestedWeights.map((w) => [w.criterionId, w.weight]));
+    const baseline = new Map(ctx.dynamicWeights.weights.map((w) => [w.criterionId, w.weight]));
     const overlapsBaseline = parsed.data.criteria.some((w) => baseline.has(w.criterionId));
     if (!overlapsBaseline) {
       return err(
-        `your criteria must include at least one from the suggested baseline (${[...baseline.keys()].join(", ")}) — adjust it within ±${WEIGHT_DELTA} or add others alongside it, but do not replace the baseline entirely.`,
+        `your criteria must include at least one from the derived weight set (${[...baseline.keys()].join(", ")}) — adjust it within ±${WEIGHT_DELTA} or add others alongside it, but do not replace it entirely.`,
       );
     }
     for (const w of parsed.data.criteria) {
       const base = baseline.get(w.criterionId);
       if (base != null && Math.abs(w.weight - base) > WEIGHT_DELTA) {
         return err(
-          `weight for "${w.criterionId}" (${w.weight}) is more than ±${WEIGHT_DELTA} from its suggested baseline (${base}) for this cohort — stay within that range, or drop the criterion instead of overriding it.`,
+          `weight for "${w.criterionId}" (${w.weight}) is more than ±${WEIGHT_DELTA} from the derived weight (${base}) for this applicant — that weight already reflects their stated preferences. Stay within that range, or drop the criterion instead of overriding it.`,
         );
       }
     }
@@ -429,8 +462,8 @@ export function runTool(ctx: ToolContext, name: string, args: unknown): ToolResu
       return estimateAnnualCostTool(ctx, args);
     case "previous_rounds":
       return previousRoundsTool(ctx);
-    case "suggest_default_weights":
-      return suggestDefaultWeightsTool(ctx);
+    case "get_dynamic_weights":
+      return getDynamicWeightsTool(ctx);
     case "score_plans":
       return scorePlansTool(ctx, args);
     case "propose_shortlist":
@@ -473,10 +506,10 @@ export function describeTools(ctx: ToolContext): Record<ToolName, string> {
     check_network_access: `{ planId } — planId from [${planIds}]. Each expected provider on the record, admitted or refused, and by which tier.`,
     estimate_annual_cost: `{ planId, scenarioId } — planId from [${planIds}]; scenarioId is ONE of: ${COST_SCENARIO_IDS.join(", ")}. No other args — the basket is built server-side and returned to you with its provenance.`,
     previous_rounds: "no args — prior shortlists this applicant already saw and rejected, and why (round 2+ only)",
-    suggest_default_weights: ctx.enforceWeightBaseline
-      ? "no args — a deterministic, cohort-based starting weight set for this record. Call this BEFORE score_plans: score_plans requires your weights to include at least one of these criteria, each within ±0.15 of the weight shown here."
-      : "no args — a deterministic, cohort-based reference weight set for this record. Informational only in this read-only conversation.",
-    score_plans: `{ criteria: [{ criterionId, weight }] } — criterionId is one of: ${CRITERION_IDS.join(", ")}. weight 0.05-0.6, at most 5 criteria, only criteria relevant to this record.${ctx.enforceWeightBaseline ? " Must include at least one criterion from suggest_default_weights's baseline, within ±0.15 of its suggested weight." : ""}`,
+    get_dynamic_weights: ctx.enforceWeightBaseline
+      ? `no args — the weight set derived for this applicant from their cohort's default policy plus their own stated preferences, with the statement behind each adjustment. Call this BEFORE score_plans: score_plans requires your weights to include at least one of these criteria, each within ±${WEIGHT_DELTA} of the weight shown here.`
+      : "no args — the weight set derived for this applicant from their cohort and stated preferences. Informational only in this read-only conversation.",
+    score_plans: `{ criteria: [{ criterionId, weight }] } — criterionId is one of: ${CRITERION_IDS.join(", ")}. weight 0.05-0.6, at most 5 criteria, only criteria relevant to this record.${ctx.enforceWeightBaseline ? ` Must include at least one criterion from get_dynamic_weights's derived set, within ±${WEIGHT_DELTA} of its derived weight.` : ""}`,
     propose_shortlist: `{ picks: [{planId, rank}], rejections: [{planId, reason}], confidence: high|medium|low, uncertaintyReason?, brokerReasoning, memberReasoning } — picks/rejections planId from [${planIds}]. TERMINAL, ends the loop. Every figure in brokerReasoning/memberReasoning must come from an observation you actually received.`,
   };
 }

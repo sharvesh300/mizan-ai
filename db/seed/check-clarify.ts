@@ -65,7 +65,19 @@ function baseState(catalogue: Catalogue, patch: Partial<RecommendationStateType>
     verifyFailed: false,
     clarificationAsked: false,
     clarification: null,
+    tradeOffAsked: false,
     assessmentOnly: false,
+    preferenceSignals: [],
+    extractedSignals: [],
+    signalsDropped: [],
+    baseWeights: [],
+    dynamicWeights: [],
+    weightExplanation: [],
+    weightConfidence: 1,
+    round: 1,
+    negotiationTurns: 0,
+    negotiationReply: null,
+    negotiationOutcome: null,
     ...patch,
   };
 }
@@ -192,6 +204,9 @@ async function sessionTests(testUser: { id: string; fullName: string }) {
     pendingClarification: { target: "premium_cost", question: "Would you rather pay less each month, even with a smaller network?" },
     servedBy: "test-model",
     latencyMs: 1200,
+    pendingTradeOff: null,
+    extractedSignals: [],
+    weights: { base: [], dynamic: [], explanation: [], confidence: 1 },
   };
 
   // --- 3: clarification branch — audit trail written, nothing presentable ---

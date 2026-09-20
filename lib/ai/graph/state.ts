@@ -26,7 +26,7 @@ import {
 } from "@/lib/assessment";
 import { emptyDraft, type IntakeDraft } from "@/lib/intake";
 import type { ConfidenceLevel } from "@/db/schema";
-import type { CriterionId, QuoteRow } from "@/lib/recommendation";
+import type { CriterionId, CriterionWeight, PreferenceSignal, QuoteRow, TradeOff, TradeOffChoice, WeightExplanation } from "@/lib/recommendation";
 
 /** Last-write-wins annotation — the only reducer shape this graph uses. */
 const latest = <T>(fallback: () => T) =>
@@ -114,6 +114,37 @@ export const AssessmentState = Annotation.Root({
   /** Set when `verify` finds a figure with no matching observation. */
   verifyFailed: latest<boolean>(() => false),
 
+  // -- Preference signals and dynamic weights (lib/ai/graph/nodes/{signals,weights}.ts) --
+  /**
+   * Every LIVE signal for this application: the ones loaded from
+   * `application_preference_signal` rows merged with whatever `signals`
+   * extracted this round. Durable state is the rows, as always — this is one
+   * turn's working copy of them.
+   */
+  preferenceSignals: latest<PreferenceSignal[]>(() => []),
+  /** Only what THIS round produced — what the session writes down. A subset of `preferenceSignals`. */
+  extractedSignals: latest<PreferenceSignal[]>(() => []),
+  /** Signal candidates the model proposed and `validateSignals` refused, with the reason. Trace only. */
+  signalsDropped: latest<string[]>(() => []),
+
+  /** The cohort baseline, before any preference moved it (`suggestDefaultWeights`). */
+  baseWeights: latest<CriterionWeight[]>(() => []),
+  /** What `score_plans` is actually held to this round (`calculateDynamicWeights`). */
+  dynamicWeights: latest<CriterionWeight[]>(() => []),
+  /** Per criterion: base, shift, final, and every signal that moved it. */
+  weightExplanation: latest<WeightExplanation[]>(() => []),
+  /** 0..1 — how much of the weight set rests on signals we are sure of. 1 when nothing moved it. */
+  weightConfidence: latest<number>(() => 1),
+
+  // -- Negotiation (lib/ai/graph/nodes/negotiate.ts) --
+  /** 1-based, matching `recommendation.version`. Rebuilt from rows, never carried in the checkpointer. */
+  round: latest<number>(() => 1),
+  /** How many times the agent has already defended a shortlist to this applicant. Also rebuilt from rows. */
+  negotiationTurns: latest<number>(() => 0),
+  /** What the agent said when it defended the shortlist. Null unless it did. */
+  negotiationReply: latest<string | null>(() => null),
+  negotiationOutcome: latest<NegotiationOutcome | null>(() => null),
+
   /**
    * Whether a clarifying question has EVER been asked for this application —
    * loaded fresh from the `recommendation_clarify_asked` conversation_action
@@ -125,6 +156,17 @@ export const AssessmentState = Annotation.Root({
   clarificationAsked: latest<boolean>(() => false),
   /** The applicant's answer to that question, once given — also loaded fresh from the DB each round. */
   clarification: latest<ClarificationAnswer | null>(() => null),
+
+  /**
+   * Whether the ONE trade-off question has ever been asked for this
+   * application — loaded fresh from the `recommendation_tradeoff_asked`
+   * conversation_action row's existence, never carried in graph or
+   * checkpointer memory. Separate from `clarificationAsked` because the two
+   * ask about different things: `clarify` asks which criterion to weigh,
+   * `tradeOff` asks which side of a hard gate the applicant wants to be on.
+   * See lib/ai/graph/nodes/tradeoff.ts.
+   */
+  tradeOffAsked: latest<boolean>(() => false),
 });
 
 export type AssessmentStateType = typeof AssessmentState.State;
@@ -183,14 +225,59 @@ export type RecommendationOutcome = {
   routedToReview: boolean;
   /** Set when `clarify` interrupted with a validated question instead — nothing is presentable yet. */
   pendingClarification: Clarification | null;
+  /** Set when `tradeOff` interrupted — the applicant is being asked which side of a hard gate they want. */
+  pendingTradeOff: PendingTradeOff | null;
+  /** What THIS round extracted — the rows the session writes to `application_preference_signal`. */
+  extractedSignals: PreferenceSignal[];
+  /** The derived weight set this shortlist was actually built under, with the audit behind it. Stored on the `ai_decision`, so the weights are reconstructable long after the trace has aged out. */
+  weights: {
+    base: CriterionWeight[];
+    dynamic: CriterionWeight[];
+    explanation: WeightExplanation[];
+    confidence: number;
+  };
   servedBy: string | null;
   latencyMs: number;
 };
 
+/**
+ * `convince` — the objection is answerable from plan facts the applicant has
+ * not weighed, so the shortlist stands and the agent says why. `concede` — the
+ * objection is a real preference change, so it becomes signals and a new
+ * shortlist gets built. Forced to `concede` once the negotiation budget is
+ * spent; see MAX_NEGOTIATION_TURNS in lib/ai/graph/nodes/negotiate.ts.
+ */
+export type NegotiationOutcome = "convince" | "concede";
+
+export type NegotiationResult = {
+  outcome: NegotiationOutcome;
+  /** What the applicant reads. Empty on a concede — the new shortlist speaks for itself. */
+  reply: string;
+  /** Including this one. */
+  turnsUsed: number;
+  /** Set when the agent wanted to argue again but the budget was spent. */
+  forced: boolean;
+  /** What the objection itself told us about their preferences — written down whether or not they were convinced, because they still said it. */
+  extractedSignals: PreferenceSignal[];
+  servedBy: string | null;
+  latencyMs: number;
+};
+
+/** What the applicant is shown, and the two answers they may give — both composed deterministically (lib/recommendation/tradeoff.ts). */
+export type PendingTradeOff = {
+  question: string;
+  options: Record<TradeOffChoice, string>;
+  tradeOff: TradeOff;
+};
+
 export type PolicyPipelineOutcome = {
-  phase: "gated_for_review" | "clarification_required" | "recommended";
+  phase: "gated_for_review" | "clarification_required" | "tradeoff_required" | "recommended" | "negotiated" | "exhausted";
   assessment: AssessmentOutcome;
   recommendation: RecommendationOutcome | null;
+  /** Set when the applicant rejected a shortlist and the agent answered instead of rebuilding. */
+  negotiation: NegotiationResult | null;
+  /** Set when the round stopped to ask which side of a hard gate the applicant wants. Nothing was built. */
+  tradeOff: PendingTradeOff | null;
 };
 
 export type Turn = {

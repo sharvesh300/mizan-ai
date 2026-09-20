@@ -1,12 +1,15 @@
 // All nodes for the recommendation graph: price, recommend, verify, recommendationGate.
 //
 //   RECOMMENDATION (the record is clean)
-//     price ──> recommend ──> verify ──┬──> clarify           (interrupt: the applicant owns one question)
-//                                      ├──> recommendationGate (interrupt: an advisor owns it)
-//                                      └──> END  (present to the applicant)
+//     signals ─┬─> price ───┐
+//              └─> weights ─┴─> recommend ──> verify ──┬──> clarify            (interrupt: the applicant owns one question)
+//                                                      ├──> recommendationGate (interrupt: an advisor owns it)
+//                                                      └──> END  (present to the applicant)
 //
-// Pricing is deterministic. Recommend executes the agentic tool-loop over closed
-// catalogues and baselines. Verify enforces hard eligibility and citation integrity.
+// Pricing is deterministic and runs in parallel with weight derivation — they
+// share no channels, so the fan-in at `recommend` is order-independent.
+// Recommend executes the agentic tool-loop over closed catalogues and the
+// derived weight set. Verify enforces hard eligibility and citation integrity.
 // RecommendationGate flags edge cases for review.
 
 import "server-only";
@@ -18,7 +21,7 @@ import { fallbackRecommend, isEligible, priceAllPlans } from "@/lib/recommendati
 import type { RecommendationStateType, RecommendationTraceStep } from "@/lib/ai/graph/state";
 
 /** Bumped whenever the prompt below changes, so `model_run` rows stay comparable. */
-export const RECOMMENDATION_PROMPT_VERSION = "recommend-v2";
+export const RECOMMENDATION_PROMPT_VERSION = "recommend-v3";
 
 /** Doc §3.6: max 8 tool calls per round. */
 const MAX_TOOL_CALLS = 8;
@@ -51,7 +54,8 @@ function systemPrompt(ctx: ToolContext): string {
     "RULES",
     "- Every argument must be a value a tool actually accepts — one of the exact ids or enum members spelled out above for that tool. An invented value is rejected and tells you what you sent and what was expected; use that to correct it. The SAME wrong value sent again ends your turn.",
     "- Ground every plan choice in what the tools told you, never in what a plan's name suggests.",
-    "- Call suggest_default_weights before score_plans. It gives you a deterministic starting weight set for this applicant's cohort — you are not picking weights from nothing. score_plans will reject a call that ignores this baseline entirely.",
+    "- Call get_dynamic_weights before score_plans. You do not choose the weights: they are derived from this applicant's cohort policy and the preferences they themselves stated, and the tool tells you which statement moved which criterion. Use that in your reasoning, and stay within the stated tolerance — score_plans rejects a call that ignores the derived set.",
+    "- If the applicant rejected a plan on price, do NOT shortlist something more expensive unless every cheaper plan fails a need they declared — and if that is the case, say so plainly in both registers, naming what the cheaper plan does not cover. Coming back with a higher premium and no explanation is not an answer to what they asked.",
     "- Call propose_shortlist exactly once, when you have enough to decide.",
     "",
     "ANSWER FORMAT",
@@ -110,7 +114,13 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
     flags,
     previousRounds: state.previousRounds,
     enforceWeightBaseline: true,
-    suggestedWeights: null,
+    preferenceSignals: state.preferenceSignals,
+    // Derived by the `weights` node, which fans out in parallel with `price`
+    // and joins here — the agent is handed a weight set, it does not pick one.
+    dynamicWeights:
+      state.dynamicWeights.length > 0
+        ? { weights: state.dynamicWeights, confidence: state.weightConfidence, explanation: state.weightExplanation }
+        : null,
   };
 
   if (!isAgentEnabled()) return fallBack(state, "no model configured", []);
@@ -127,6 +137,17 @@ export async function recommend(state: RecommendationStateType): Promise<Partial
       ? `This is round ${state.previousRounds.length + 1}. Call previous_rounds before re-offering anything already rejected.`
       : "This is round 1.",
   ];
+
+  if (state.dynamicWeights.length > 0) {
+    const moved = state.weightExplanation.filter((e) => e.shift !== 0);
+    transcriptLines.push(
+      moved.length > 0
+        ? `This applicant's weights have already been derived from what they told us: ${moved
+            .map((e) => `${e.criterionId} ${e.shift > 0 ? "up" : "down"} to ${e.finalWeight} (${e.drivenBy.map((sig) => sig.reason).join("; ")})`)
+            .join(", ")}. Call get_dynamic_weights for the full set before score_plans.`
+        : "This applicant stated no preference that moved their cohort's default weights. Call get_dynamic_weights for the set before score_plans.",
+    );
+  }
 
   if (state.clarification) {
     const { target, question, rawAnswer } = state.clarification;
@@ -236,6 +257,99 @@ function numbersIn(text: string): string[] {
 }
 
 /**
+ * Pairs is enough to bound this: the arithmetic an agent legitimately does in
+ * prose is one step over two observed figures, never a chain. More than this
+ * and it is not citing, it is modelling — which is what the cost tool is for.
+ */
+const MAX_OBSERVED_FOR_DERIVATION = 80;
+
+/**
+ * Whether a cited figure is one the trace can REPRODUCE, rather than one it
+ * literally printed.
+ *
+ * `verify`'s citation rule used to be exact set membership, which made it
+ * reject the class of number an agent is not only allowed but expected to
+ * produce: the difference between two premiums, a year's visits at the stated
+ * per-visit cost, a total that adds a premium to a deductible and a co-pay.
+ * Those are not inventions — every input is on the record of the turn — so
+ * they are checked by re-deriving them, not by banning them.
+ *
+ * Anything needing more than one operation over two observed figures still
+ * fails, and so does anything with an input nobody observed. That is the
+ * point: the rule is "your arithmetic must be checkable", not "you may do
+ * arithmetic".
+ */
+function isDerivable(target: number, observed: number[]): boolean {
+  const values = observed.slice(-MAX_OBSERVED_FOR_DERIVATION);
+  const matches = (candidate: number) => Number.isFinite(candidate) && Math.abs(candidate - target) < 0.51;
+
+  for (let i = 0; i < values.length; i++) {
+    const a = values[i];
+    for (let j = 0; j < values.length; j++) {
+      if (i === j) continue;
+      const b = values[j];
+      // Sum (premium + deductible + co-pay), difference (the gap between two
+      // plans), product (visits x unit cost), and percentage-of (a co-pay
+      // rate applied to an amount) — the four shapes the cost engine itself
+      // uses, and nothing else.
+      if (matches(a + b) || matches(a - b) || matches(a * b) || matches((a * b) / 100)) return true;
+    }
+  }
+  return false;
+}
+
+/** Words an applicant uses when the objection is about money. Read alongside the signals, because the signal extractor may not have run (no model) or may have read the sentence the other way round. */
+const PRICE_OBJECTION = /\b(cheap|cheaper|cheapest|afford|budget|price|pricey|cost|costly|expensive|premium|less|lower|reduce|save)\b/i;
+
+/**
+ * Did this round answer "make it cheaper" with something MORE expensive?
+ *
+ * The failure this catches, from a real transcript: the applicant was shown
+ * Balanced at AED 8,900, asked "could we reduce the price a bit, could we go
+ * for Essential?", and the next round came back with Comprehensive at AED
+ * 16,500. Every individual step was defensible — Essential is ineligible, the
+ * chronic criteria outrank premium for this cohort — and the result was still
+ * indefensible: a price objection answered with a plan that costs nearly
+ * twice as much, presented as a fresh suggestion with no acknowledgement that
+ * it had gone the wrong way.
+ *
+ * `tradeOff` (./tradeoff.ts) now catches the common cause of this before a
+ * rebuild ever happens. This is the backstop for every other cause, and it is
+ * deliberately deterministic: it compares two premiums the quotes already
+ * hold, so no prompt wording and no model judgement can talk its way past it.
+ *
+ * Returns null when there is nothing wrong, or the reason there is.
+ */
+function priceObjectionViolated(state: RecommendationStateType): { reason: string; hadCheaperOption: boolean } | null {
+  const lastRound = state.previousRounds.at(-1);
+  if (!lastRound) return null;
+
+  const objectedOnPrice =
+    PRICE_OBJECTION.test(lastRound.reason) ||
+    state.preferenceSignals.some((s) => s.dimension === "premium_cost" && s.direction === "increase" && s.source === "rejection");
+  if (!objectedOnPrice) return null;
+
+  const premiumOf = (planId: string | undefined) =>
+    planId ? state.quotes.find((q) => q.planId === planId)?.annualPremium ?? null : null;
+
+  const rejectedPremium = premiumOf(lastRound.rejectedPlanIds[0]);
+  const proposedPremium = premiumOf(state.shortlist[0]?.planId);
+  if (rejectedPremium == null || proposedPremium == null || proposedPremium <= rejectedPremium) return null;
+
+  // Was there anything cheaper they could actually have had? That is the
+  // difference between a mistake and an unavoidable answer badly delivered.
+  const cheaperEligible = state.quotes.filter((q) => q.eligible && q.annualPremium < rejectedPremium && q.planId !== state.shortlist[0]?.planId);
+
+  return {
+    hadCheaperOption: cheaperEligible.length > 0,
+    reason:
+      cheaperEligible.length > 0
+        ? `The applicant rejected a plan at AED ${rejectedPremium} on price and this round proposed one at AED ${proposedPremium}, when ${cheaperEligible.length} cheaper eligible plan(s) were available.`
+        : `The applicant rejected a plan at AED ${rejectedPremium} on price and the only plans that meet their declared needs cost more (AED ${proposedPremium}). Nothing cheaper is available to them.`,
+  };
+}
+
+/**
  * `verify` — deterministic checks over what the agent (or the fallback)
  * proposed, before anything is persisted or shown to anyone.
  */
@@ -248,12 +362,24 @@ export function verify(state: RecommendationStateType): Partial<RecommendationSt
 
   let uncited: string[] = [];
   if (state.fellBackTo == null) {
-    const observed = new Set(state.trace.flatMap((step) => (step.validation === "ok" ? numbersIn(step.observationSummary) : [])));
+    const observedText = state.trace.flatMap((step) => (step.validation === "ok" ? numbersIn(step.observationSummary) : []));
+    const observed = new Set(observedText);
+    const observedValues = observedText.map(Number).filter((n) => Number.isFinite(n));
     const cited = numbersIn(`${state.brokerReasoning ?? ""} ${state.memberReasoning ?? ""}`);
-    uncited = cited.filter((n) => !observed.has(n));
+    uncited = cited.filter((n) => !observed.has(n) && !isDerivable(Number(n), observedValues));
   }
 
-  const verifyFailed = stripped.length > 0 || uncited.length > 0 || validShortlist.length === 0;
+  // A price objection answered with a more expensive plan when something
+  // cheaper WAS available is a real failure, not a close call — it
+  // contradicts a preference the applicant stated in as many words, and no
+  // amount of good reasoning makes it the right answer. When nothing cheaper
+  // is available it is not a failure at all, but it must not be presented as
+  // a confident match either: the applicant is about to be shown, for the
+  // second time, a plan that costs more than the one they just turned down.
+  const priceViolation = priceObjectionViolated(state);
+  const priceFailed = priceViolation?.hadCheaperOption === true;
+
+  const verifyFailed = stripped.length > 0 || uncited.length > 0 || validShortlist.length === 0 || priceFailed;
 
   return {
     shortlist: validShortlist.length > 0 ? validShortlist : state.shortlist,
@@ -265,12 +391,16 @@ export function verify(state: RecommendationStateType): Partial<RecommendationSt
           ]
         : state.rejections,
     verifyFailed,
-    recoConfidence: verifyFailed ? "low" : state.recoConfidence,
+    recoConfidence: verifyFailed || priceViolation ? "low" : state.recoConfidence,
     recoUncertaintyReason: verifyFailed
       ? uncited.length > 0
         ? `A figure in the reasoning (${uncited.join(", ")}) does not trace back to a tool observation.`
-        : "One or more shortlisted plans failed the eligibility check at verification."
-      : state.recoUncertaintyReason,
+        : priceFailed
+          ? priceViolation!.reason
+          : "One or more shortlisted plans failed the eligibility check at verification."
+      : priceViolation
+        ? priceViolation.reason
+        : state.recoUncertaintyReason,
   };
 }
 

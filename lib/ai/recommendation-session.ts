@@ -38,13 +38,14 @@
 // All of it in one transaction.
 
 import "server-only";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { db } from "@/db/client";
 import {
   aiDecision,
   application,
+  applicationPreferenceSignal,
   applicationStatusHistory,
   assessment,
   assessmentFlag,
@@ -58,19 +59,36 @@ import {
   type ConfidenceLevel,
 } from "@/db/schema";
 import { loadAssessmentInputs } from "@/lib/ai/assessment-session";
-import { announceClarificationRequest, announceRecommendationOutcome, latestConversationForApplication } from "@/lib/ai/conversation-continuation";
+import {
+  announceClarificationRequest,
+  announceNegotiationReply,
+  announceRecommendationOutcome,
+  announceTradeOff,
+  latestConversationForApplication,
+} from "@/lib/ai/conversation-continuation";
 import { runRecommendation as runRecommendationGraph } from "@/lib/ai/graph";
-import type { ClarificationAnswer } from "@/lib/ai/graph/state";
-import type { RecommendationOutcome } from "@/lib/ai/graph/state";
+import type { ClarificationAnswer, NegotiationResult, PendingTradeOff, RecommendationOutcome } from "@/lib/ai/graph/state";
 import { RECOMMENDATION_PROMPT_VERSION } from "@/lib/ai/graph/nodes/recommendation";
 import { CLARIFY_PROMPT_VERSION } from "@/lib/ai/graph/nodes/clarify";
+import { NEGOTIATE_PROMPT_VERSION } from "@/lib/ai/graph/nodes/negotiate";
+import { SIGNALS_PROMPT_VERSION } from "@/lib/ai/graph/nodes/signals";
+import { TRADEOFF_PROMPT_VERSION } from "@/lib/ai/graph/nodes/tradeoff";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
 import type { PreviousRound } from "@/lib/ai/tools/plans";
 import type { AssessmentRecord, Catalogue, CohortAssignment, Verdict } from "@/lib/assessment";
-import type { CriterionId } from "@/lib/recommendation";
+import { readTradeOffAnswer, signalsForChoice, type CriterionId, type PreferenceSignal, type TradeOff, type TradeOffChoice } from "@/lib/recommendation";
 
 /** Same numbers `assessment-session.ts` uses, and for the same reason: the schema's `low_confidence_needs_review` CHECK. */
 const CONFIDENCE_VALUE: Record<ConfidenceLevel, number> = { high: 0.95, medium: 0.8, low: 0.45 };
+
+/**
+ * After this many rounds, a signal's confidence is halved AT LOAD TIME — the
+ * stored row is never rewritten, because what the applicant said in round 1 is
+ * a fact and it stays one. What decays is how much we let it drive a weight
+ * three rounds later, after they have rejected two shortlists built on it.
+ */
+const SIGNAL_DECAY_ROUNDS = 3;
+const SIGNAL_DECAY_FACTOR = 0.5;
 
 // ---------------------------------------------------------------------------
 // Loading
@@ -93,6 +111,14 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
   previousRounds: PreviousRound[];
   clarificationAsked: boolean;
   clarification: ClarificationAnswer | null;
+  /** Live signals only (`superseded_at is null`), with decay already applied. */
+  preferenceSignals: PreferenceSignal[];
+  /** 1-based, the round about to be built or negotiated. */
+  round: number;
+  /** How many times the agent has already defended a shortlist to this applicant. */
+  negotiationTurns: number;
+  /** Whether the one trade-off question has ever been asked — from the row's existence alone. */
+  tradeOffAsked: boolean;
   /** Where a clarifying question would be posted, if one is asked this round. */
   conversationId: string | null;
 } | null> {
@@ -158,6 +184,56 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
     }
   }
 
+  // The round about to be built. Derived from the rejection rows rather than
+  // from `recommendation.version`, because a `convince` turn writes no
+  // recommendation row but is still an answer to a rejection — counting
+  // versions would let an applicant negotiate forever.
+  const round = previousRounds.length + 1;
+
+  // Same discipline: the negotiation budget is a COUNT OF ROWS, so a retried
+  // background job, a restarted process, or two workers racing cannot reset
+  // it. Nothing about it lives in the checkpointer.
+  const negotiationActions = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(
+      and(
+        eq(conversationAction.subjectType, "application"),
+        eq(conversationAction.subjectId, applicationId),
+        eq(conversationAction.actionType, "recommendation_negotiated"),
+      ),
+    );
+
+  const [tradeOffAction] = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(
+      and(
+        eq(conversationAction.subjectType, "application"),
+        eq(conversationAction.subjectId, applicationId),
+        eq(conversationAction.actionType, "recommendation_tradeoff_asked"),
+      ),
+    )
+    .limit(1);
+
+  const signalRows = await db
+    .select()
+    .from(applicationPreferenceSignal)
+    .where(and(eq(applicationPreferenceSignal.applicationId, applicationId), isNull(applicationPreferenceSignal.supersededAt)))
+    .orderBy(asc(applicationPreferenceSignal.createdAt));
+
+  const preferenceSignals: PreferenceSignal[] = signalRows.map((row) => ({
+    dimension: row.dimension as CriterionId,
+    direction: row.direction,
+    strength: row.strength,
+    // Decay is applied HERE, never written back: the row records what they
+    // said, this records how much it should still drive a weight now.
+    confidence: round - row.round >= SIGNAL_DECAY_ROUNDS ? row.confidence * SIGNAL_DECAY_FACTOR : row.confidence,
+    source: row.source,
+    reason: row.reason,
+    evidence: row.evidenceTable && row.evidenceId ? { table: row.evidenceTable, id: row.evidenceId } : null,
+  }));
+
   return {
     record: inputs.record,
     catalogue: inputs.catalogue,
@@ -173,6 +249,13 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
     previousRounds,
     clarificationAsked,
     clarification,
+    preferenceSignals,
+    round,
+    negotiationTurns: negotiationActions.length,
+    // Same rule `clarificationAsked` follows: with no conversation there is
+    // nowhere to ask, so the question is treated as already asked rather than
+    // sending the round down a path with no way to actually put it.
+    tradeOffAsked: Boolean(tradeOffAction) || !convo,
     conversationId: convo?.id ?? null,
   };
 }
@@ -180,6 +263,317 @@ export async function loadRecommendationInputs(applicationId: string): Promise<{
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
+
+/**
+ * Write down what this round learned about what the applicant wants.
+ *
+ * APPEND-ONLY, and deliberately so. A signal row is never UPDATEd: when a
+ * later round reads the same dimension the other way — "comprehensive cover,
+ * whatever it costs" in round 1, "this is more than I want to spend" in round
+ * 3 — the old row is stamped `superseded_at` and the new one is inserted
+ * beside it. The history IS the learning record, and it is exactly the
+ * argument the negotiation loop is having; collapsing it to a current value
+ * would throw away the only evidence an advisor has that the applicant
+ * changed their mind rather than that we misread them the first time.
+ *
+ * Runs inside the caller's transaction — never opens its own.
+ */
+async function persistSignals(applicationId: string, signals: PreferenceSignal[], round: number, now: Date): Promise<number> {
+  if (signals.length === 0) return 0;
+
+  const live = await db
+    .select()
+    .from(applicationPreferenceSignal)
+    .where(and(eq(applicationPreferenceSignal.applicationId, applicationId), isNull(applicationPreferenceSignal.supersededAt)));
+
+  let written = 0;
+  for (const signal of signals) {
+    // Already on file, same reading, same evidence — re-extracting the same
+    // tagged priority every round must not stack up as emphasis, because
+    // `calculateDynamicWeights` sums over signals.
+    const duplicate = live.some(
+      (row) =>
+        row.dimension === signal.dimension &&
+        row.direction === signal.direction &&
+        row.source === signal.source &&
+        (row.evidenceId ?? null) === (signal.evidence?.id ?? null),
+    );
+    if (duplicate) continue;
+
+    // They have said the opposite of what is on file for this dimension.
+    // That is the interesting case, and the one that must not be lost.
+    const contradicted = live.filter((row) => row.dimension === signal.dimension && row.direction !== signal.direction);
+    if (contradicted.length > 0) {
+      await db
+        .update(applicationPreferenceSignal)
+        .set({ supersededAt: now })
+        .where(inArray(applicationPreferenceSignal.id, contradicted.map((row) => row.id)));
+    }
+
+    await db.insert(applicationPreferenceSignal).values({
+      applicationId,
+      dimension: signal.dimension,
+      direction: signal.direction,
+      strength: signal.strength,
+      confidence: signal.confidence,
+      source: signal.source,
+      reason: signal.reason,
+      evidenceTable: signal.evidence?.table ?? null,
+      evidenceId: signal.evidence?.id ?? null,
+      round,
+    });
+    written++;
+  }
+  return written;
+}
+
+/**
+ * A round the applicant rejected and the agent ANSWERED rather than rebuilt.
+ *
+ * Nothing about the live recommendation changes — that is the whole point of
+ * a `convince`. What gets written is the fact that an argument was made:
+ *
+ *   application_preference_signal  what the objection itself told us
+ *   conversation_action            `recommendation_negotiated` — the row the
+ *                                  negotiation budget is COUNTED from, which
+ *                                  is what makes the threshold survive a
+ *                                  restart, a retry, or a second worker
+ *   model_run                      the mechanical call, when a model made it
+ */
+export async function persistNegotiation(
+  applicationId: string,
+  negotiation: NegotiationResult,
+  round: number,
+  conversationId: string | null,
+): Promise<void> {
+  const now = new Date();
+
+  await db.run(sql`begin`);
+  try {
+    await persistSignals(applicationId, negotiation.extractedSignals, round, now);
+
+    // The mechanical call, when a model made one. No `ai_decision` alongside
+    // it, deliberately: the live claim about which plan this applicant should
+    // take has not changed. Only the conversation has.
+    if (negotiation.servedBy) {
+      await db
+        .insert(modelRun)
+        .values({
+          purpose: "plan_recommendation",
+          provider: PROVIDER,
+          modelId: negotiation.servedBy ?? MODEL_ID,
+          promptVersion: NEGOTIATE_PROMPT_VERSION,
+          request: { applicationId, round },
+          response: { outcome: negotiation.outcome, turnsUsed: negotiation.turnsUsed },
+          latencyMs: negotiation.latencyMs,
+          status: "ok",
+        });
+    }
+
+    if (conversationId) {
+      await db.insert(conversationAction).values({
+        conversationId,
+        actionType: "recommendation_negotiated",
+        aiDecisionId: null,
+        arguments: { round, outcome: negotiation.outcome, turnsUsed: negotiation.turnsUsed, reply: negotiation.reply },
+        subjectType: "application",
+        subjectId: applicationId,
+        status: "succeeded",
+        actorKind: "system",
+        completedAt: now,
+      });
+    }
+
+    await db.run(sql`commit`);
+  } catch (error) {
+    await db.run(sql`rollback`);
+    throw error;
+  }
+}
+
+/**
+ * The applicant was asked which side of a hard gate they want to be on.
+ *
+ * Nothing is built and nothing is superseded — the round stopped at the
+ * question. What gets written is the question itself, on the row whose mere
+ * EXISTENCE is the durable "asked already" gate
+ * (`recommendation_tradeoff_asked`, read back by `loadRecommendationInputs`),
+ * so the applicant can never be asked this twice however many times the
+ * background job is retried.
+ *
+ * No `model_run`: no model composed this. The question is the two plans' own
+ * terms, arranged by `describeTradeOff` (lib/recommendation/tradeoff.ts).
+ */
+export async function persistTradeOff(
+  applicationId: string,
+  pending: PendingTradeOff,
+  round: number,
+  conversationId: string | null,
+): Promise<{ asked: boolean }> {
+  if (!conversationId) return { asked: false };
+  const now = new Date();
+
+  await db.run(sql`begin`);
+  try {
+    const [asked] = await db
+      .insert(conversationAction)
+      .values({
+        conversationId,
+        actionType: "recommendation_tradeoff_asked",
+        arguments: {
+          round,
+          question: pending.question,
+          options: pending.options,
+          tradeOff: pending.tradeOff,
+          promptVersion: TRADEOFF_PROMPT_VERSION,
+        },
+        subjectType: "application",
+        subjectId: applicationId,
+        status: "succeeded",
+        actorKind: "system",
+        completedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    await db.run(sql`commit`);
+    return { asked: Boolean(asked) };
+  } catch (error) {
+    await db.run(sql`rollback`);
+    throw error;
+  }
+}
+
+/**
+ * The question and its two options as they were actually asked, read back off
+ * the authoritative row. `answerTradeOff` (app/applications/new/actions.ts)
+ * uses this to write the applicant's own message in the words they pressed —
+ * never in words the client sent up.
+ */
+export async function openTradeOffQuestion(
+  applicationId: string,
+): Promise<{ question: string; options: Record<TradeOffChoice, string> } | null> {
+  const [asked] = await db
+    .select({ arguments: conversationAction.arguments })
+    .from(conversationAction)
+    .where(
+      and(
+        eq(conversationAction.subjectType, "application"),
+        eq(conversationAction.subjectId, applicationId),
+        eq(conversationAction.actionType, "recommendation_tradeoff_asked"),
+      ),
+    )
+    .limit(1);
+
+  const args = asked?.arguments as { question?: string; options?: Record<TradeOffChoice, string> } | null;
+  if (!args?.question || !args.options) return null;
+  return { question: args.question, options: args.options };
+}
+
+/**
+ * Their answer, turned into weights.
+ *
+ * The signals are NOT read out of the reply by a model — they are
+ * `signalsForChoice`'s fixed set for whichever of the two options the answer
+ * resolves to, decided before the question was ever asked. That is what makes
+ * this loop closeable: a question asked because cost and cover were in
+ * conflict comes back as the highest-confidence signals the system issues,
+ * pointing at exactly the criteria that were in conflict.
+ *
+ * The `premium` answer is the one that does NOT simply re-run. Choosing the
+ * cheaper plan means going without cover for something already declared on
+ * the record, and a declared medical need is a fact, not a preference — it
+ * cannot be dropped by a weight. So the signals are written (they are true,
+ * and they should outlive this conversation) and an advisor is brought in to
+ * handle what is really an amendment to the application. Quietly re-scoring
+ * the applicant into a plan that does not cover their condition, because they
+ * said the word "cheaper", is the one outcome this whole path exists to
+ * prevent.
+ */
+export async function recordTradeOffAnswer(
+  applicationId: string,
+  conversationId: string,
+  rawAnswer: string,
+  actor: { userId: string },
+  /**
+   * Set when the applicant PRESSED one of the two buttons, which is the
+   * normal path — there is nothing to interpret, so `readTradeOffAnswer`'s
+   * keyword read is skipped entirely. It stays as the fallback for someone
+   * who types a reply instead of pressing, and it fails safe when they do.
+   */
+  explicitChoice?: TradeOffChoice,
+): Promise<{ recorded: boolean; choice: TradeOffChoice | null; needsAdvisor: boolean }> {
+  const [asked] = await db
+    .select()
+    .from(conversationAction)
+    .where(
+      and(
+        eq(conversationAction.subjectType, "application"),
+        eq(conversationAction.subjectId, applicationId),
+        eq(conversationAction.actionType, "recommendation_tradeoff_asked"),
+      ),
+    )
+    .limit(1);
+  if (!asked) return { recorded: false, choice: null, needsAdvisor: false };
+
+  const args = asked.arguments as { round?: number; tradeOff?: TradeOff } | null;
+  if (!args?.tradeOff) return { recorded: false, choice: null, needsAdvisor: false };
+
+  const choice = explicitChoice ?? readTradeOffAnswer(rawAnswer);
+  const signals = signalsForChoice(choice, args.tradeOff);
+  const round = args.round ?? 1;
+  const now = new Date();
+
+  await db.run(sql`begin`);
+  try {
+    // Race-safe, same shape as the clarification answer: the partial unique
+    // index means a second rapid reply writes nothing rather than a second
+    // set of signals.
+    const [recorded] = await db
+      .insert(conversationAction)
+      .values({
+        conversationId,
+        actionType: "recommendation_tradeoff_answered",
+        arguments: { rawAnswer, choice, chosenBy: explicitChoice ? "button" : "free_text", planId: args.tradeOff.cheaperPlanId },
+        subjectType: "application",
+        subjectId: applicationId,
+        status: "succeeded",
+        actorKind: "applicant",
+        actorUserId: actor.userId,
+        completedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (!recorded) {
+      await db.run(sql`commit`);
+      return { recorded: false, choice, needsAdvisor: false };
+    }
+
+    await persistSignals(applicationId, signals, round, now);
+
+    let needsAdvisor = false;
+    if (choice === "premium") {
+      needsAdvisor = true;
+      await db.insert(reviewTask).values({
+        subjectType: "application",
+        subjectId: applicationId,
+        reason:
+          `The applicant would rather have ${args.tradeOff.cheaperPlanName} (AED ${args.tradeOff.cheaperPremium.toLocaleString("en-US")}) than keep ` +
+          `${args.tradeOff.requirement}, which they declared on this application. That plan is only available to them if that ` +
+          `requirement comes off the record — an amendment, not a re-score. Confirm with them before anything changes.`,
+        priorityScore: 85,
+        status: "open",
+      });
+    }
+
+    await db.run(sql`commit`);
+    return { recorded: true, choice, needsAdvisor };
+  } catch (error) {
+    await db.run(sql`rollback`);
+    throw error;
+  }
+}
 
 export async function persistRecommendation(
   applicationId: string,
@@ -218,6 +612,8 @@ export async function persistRecommendation(
     const clarification = outcome.pendingClarification;
     await db.run(sql`begin`);
     try {
+      await persistSignals(applicationId, outcome.extractedSignals, round, now);
+
       for (const q of outcome.quotes) {
         await db
           .insert(quote)
@@ -323,6 +719,8 @@ export async function persistRecommendation(
 
   await db.run(sql`begin`);
   try {
+    await persistSignals(applicationId, outcome.extractedSignals, round, now);
+
     // The mechanical call, when there was one. The pure deterministic
     // fallback never reaches the model, so it never gets a run row either —
     // same discipline persistAssessment holds for cohort classification.
@@ -432,6 +830,24 @@ export async function persistRecommendation(
         fellBackTo: outcome.fellBackTo,
         verifyFailed: outcome.verifyFailed,
         round,
+        // The weight set this recommendation was actually built under, and
+        // the stated preference behind every adjustment. Stored here rather
+        // than only in the trace so it survives: this is the answer to "why
+        // was this applicant shown this plan", long after the tool
+        // observations have stopped being interesting.
+        weights: {
+          base: outcome.weights.base,
+          dynamic: outcome.weights.dynamic,
+          confidence: outcome.weights.confidence,
+          derivedFrom: outcome.weights.explanation.map((e) => ({
+            criterionId: e.criterionId,
+            baseWeight: e.baseWeight,
+            shift: e.shift,
+            finalWeight: e.finalWeight,
+            statedPreferences: e.drivenBy.map((sig) => ({ direction: sig.direction, source: sig.source, reason: sig.reason })),
+          })),
+          promptVersion: SIGNALS_PROMPT_VERSION,
+        },
       },
       summary: `${winner.planId} · round ${round} · ${outcome.confidence}${outcome.fellBackTo ? " · fallback" : ""}`,
       confidence: CONFIDENCE_VALUE[outcome.confidence],
@@ -483,10 +899,18 @@ export async function persistRecommendation(
  * same application, so a re-run is explicit (`force`), the same idempotency
  * shape `validateAndClassify` uses.
  */
+export type RecommendationRun = {
+  recommendation: RecommendationOutcome | null;
+  /** Set when the applicant's rejection was ANSWERED rather than rebuilt around — `recommendation` is null in that case. */
+  negotiation: NegotiationResult | null;
+  /** Set when the round stopped to ask which side of a hard gate they want. Nothing was built. */
+  tradeOff: PendingTradeOff | null;
+};
+
 export async function runRecommendation(
   applicationId: string,
   options: { force?: boolean } = {},
-): Promise<RecommendationOutcome | null> {
+): Promise<RecommendationRun | null> {
   const [existing] = await db
     .select({ id: recommendation.id })
     .from(recommendation)
@@ -501,8 +925,35 @@ export async function runRecommendation(
   const round = (row?.version ?? 0) + 1;
 
   const outcome = await runRecommendationGraph(inputs);
-  await persistRecommendation(applicationId, outcome, round, inputs.conversationId);
-  return outcome;
+
+  // The applicant is asking for a plan their own declared needs rule out.
+  // Nothing was built and nothing is superseded — the round stopped at the
+  // question, because no weighting admits an ineligible plan and every
+  // rebuild would come back with something they did not ask for.
+  if (outcome.tradeOff) {
+    const { asked } = await persistTradeOff(applicationId, outcome.tradeOff, inputs.round, inputs.conversationId);
+    return { recommendation: null, negotiation: null, tradeOff: asked ? outcome.tradeOff : null };
+  }
+
+  // A `convince` turn: the shortlist on file stands and the agent answered
+  // the objection. There is no new recommendation to write, and writing one
+  // anyway would supersede the very shortlist being defended.
+  if (outcome.negotiation && outcome.negotiation.outcome === "convince") {
+    await persistNegotiation(applicationId, outcome.negotiation, inputs.round, inputs.conversationId);
+    return { recommendation: null, negotiation: outcome.negotiation, tradeOff: null };
+  }
+
+  if (!outcome.recommendation) return { recommendation: null, negotiation: outcome.negotiation, tradeOff: null };
+
+  // A forced concede still spent a negotiation turn, and that turn has to be
+  // COUNTED — otherwise the budget resets every time the agent gives in and
+  // the loop this whole path exists to bound comes back.
+  if (outcome.negotiation) {
+    await persistNegotiation(applicationId, outcome.negotiation, inputs.round, inputs.conversationId);
+  }
+
+  await persistRecommendation(applicationId, outcome.recommendation, round, inputs.conversationId);
+  return { recommendation: outcome.recommendation, negotiation: outcome.negotiation, tradeOff: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -527,21 +978,31 @@ export async function runRecommendation(
  */
 export function scheduleRecommendation(applicationId: string, options: { force?: boolean } = {}): void {
   after(async () => {
-    let outcome: RecommendationOutcome | null = null;
+    let run: RecommendationRun | null = null;
     try {
-      outcome = await runRecommendation(applicationId, options);
+      run = await runRecommendation(applicationId, options);
     } catch (error) {
       console.error("[recommendation] background run failed", applicationId, error);
       return;
     }
+    const outcome = run?.recommendation ?? null;
+    const negotiation = run?.negotiation ?? null;
+    const tradeOff = run?.tradeOff ?? null;
     let conversationId: string | null = null;
     try {
-      // A clarifying question, not a shortlist — a different message, and
-      // nothing to reveal yet (announceClarificationRequest,
-      // lib/ai/conversation-continuation.ts).
-      conversationId = outcome?.pendingClarification
-        ? await announceClarificationRequest(applicationId, outcome.pendingClarification.question)
-        : await announceRecommendationOutcome(applicationId);
+      // Three different things can have happened, and they are three
+      // different messages:
+      //   a hard-gate conflict was found   -> the trade-off question, nothing built
+      //   the agent answered an objection  -> its reply, no new card
+      //   a clarifying question was asked  -> the question, nothing revealed
+      //   a shortlist was built            -> the card
+      conversationId = tradeOff
+        ? await announceTradeOff(applicationId, tradeOff.question, tradeOff.options)
+        : negotiation?.outcome === "convince" && negotiation.reply.length > 0
+          ? await announceNegotiationReply(applicationId, negotiation.reply)
+          : outcome?.pendingClarification
+            ? await announceClarificationRequest(applicationId, outcome.pendingClarification.question)
+            : await announceRecommendationOutcome(applicationId);
     } catch (error) {
       console.error("[recommendation] announcing the outcome failed", applicationId, error);
     }

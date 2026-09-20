@@ -46,7 +46,8 @@ import { validateAndClassify } from "@/lib/ai/assessment-session";
 import { announceAssessmentOutcome } from "@/lib/ai/conversation-continuation";
 import { isAgentEnabled } from "@/lib/ai/openrouter";
 import { answerPlanQuestion, type PlanChatTurn } from "@/lib/ai/plan-chat-session";
-import { scheduleRecommendation } from "@/lib/ai/recommendation-session";
+import { openTradeOffQuestion, recordTradeOffAnswer, scheduleRecommendation } from "@/lib/ai/recommendation-session";
+import { TRADE_OFF_CHOICES, type TradeOffChoice } from "@/lib/recommendation";
 import { getCurrentUser } from "@/lib/session";
 import type { BudgetBand, MaritalStatus, RelationshipType } from "@/db/schema";
 
@@ -456,6 +457,63 @@ async function openClarification(applicationId: string): Promise<{ target: strin
   return { target: args.target, question: args.question };
 }
 
+/**
+ * The still-open trade-off question for this application, if any — asked and
+ * not yet answered. Read off the authoritative
+ * `recommendation_tradeoff_asked` row `persistTradeOff`
+ * (lib/ai/recommendation-session.ts) wrote, never from the client's request.
+ * See lib/ai/graph/nodes/tradeoff.ts.
+ */
+async function openTradeOff(applicationId: string): Promise<boolean> {
+  const [asked] = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_tradeoff_asked")))
+    .limit(1);
+  if (!asked) return false;
+
+  const [answered] = await db
+    .select({ id: conversationAction.id })
+    .from(conversationAction)
+    .where(and(eq(conversationAction.subjectType, "application"), eq(conversationAction.subjectId, applicationId), eq(conversationAction.actionType, "recommendation_tradeoff_answered")))
+    .limit(1);
+  return !answered;
+}
+
+/**
+ * One response to a trade-off answer, however it arrived — a pressed button
+ * (`answerTradeOff`) or a typed reply (`sendChatMessage`). The inbound
+ * message is already posted by the caller; this records the answer and says
+ * what happens next.
+ *
+ * The `premium` branch is the one that does NOT re-run: choosing the cheaper
+ * plan means going without cover for something already declared on the
+ * record, which is an amendment, not a re-score. A person confirms that.
+ */
+async function respondToTradeOff(
+  conversationId: string,
+  applicationId: string,
+  answer: string,
+  userId: string,
+  explicitChoice?: TradeOffChoice,
+): Promise<void> {
+  const { recorded, needsAdvisor } = await recordTradeOffAnswer(applicationId, conversationId, answer, { userId }, explicitChoice);
+
+  if (!recorded) {
+    await sayAssistant(conversationId, "Got it — I already have your answer and I'm looking into it.");
+  } else if (needsAdvisor) {
+    await sayAssistant(
+      conversationId,
+      "Understood — that plan would mean going without the cover you'd told us you needed, so I've asked an advisor to confirm that with you before anything changes. They'll be in touch shortly.",
+    );
+    await db.update(conversation).set({ status: "awaiting_review", lastOutboundAt: new Date() }).where(eq(conversation.id, conversationId));
+  } else {
+    await sayAssistant(conversationId, "Thanks — that's clear. Let me take another look with that in mind.");
+    await db.update(conversation).set({ status: "active", lastOutboundAt: new Date() }).where(eq(conversation.id, conversationId));
+    scheduleRecommendation(applicationId, { force: true });
+  }
+}
+
 /** The last few turns, oldest first, for the plan-chat node's conversational memory — bounded so a long thread does not balloon the prompt. */
 async function recentPlanHistory(conversationId: string, limit = 8): Promise<PlanChatTurn[]> {
   const rows = await db
@@ -531,6 +589,20 @@ export async function sendChatMessage(conversationId: string, formData: FormData
     // Checked first — a pending clarifying question (lib/ai/graph/nodes/clarify.ts)
     // takes this reply as its answer, not a plan-chat question. `target`/
     // `question` never come from this request; see `openClarification`.
+    // A pending trade-off question takes this reply as its answer, before
+    // anything else looks at it — the applicant is being asked which side of
+    // a hard gate they want to be on, and reading that as a plan-chat
+    // question is how the conversation went in circles before.
+    // The applicant typed a reply instead of pressing one of the two buttons.
+    // `readTradeOffAnswer` reads it, and fails safe toward keeping the cover
+    // when it cannot tell (lib/recommendation/tradeoff.ts).
+    if (await openTradeOff(convo.applicationId)) {
+      await sayInbound(conversationId, answer);
+      await respondToTradeOff(conversationId, convo.applicationId, answer, user.id);
+      revalidatePath(`/applications/new/chat/${conversationId}`);
+      return;
+    }
+
     const pendingClarification = await openClarification(convo.applicationId);
     if (pendingClarification) {
       await sayInbound(conversationId, answer);
@@ -963,6 +1035,41 @@ export async function pickPlan(conversationId: string, planId: string): Promise<
  * does not re-offer what was already refused. By round 3 the honest answer is
  * an advisor, not another attempt — a hard limit, stated plainly (doc §5).
  */
+/**
+ * One of the two trade-off buttons was pressed (components/trade-off-card.tsx).
+ *
+ * The ONLY thing taken from the client is which of two fixed options it was —
+ * validated against `TRADE_OFF_CHOICES`, not trusted as text. The label the
+ * applicant's own message is written in, the trade-off it refers to, and the
+ * preference signals it writes are all re-derived from the
+ * `recommendation_tradeoff_asked` row the server itself wrote. A client that
+ * sends anything else gets an error, not a different set of weights.
+ */
+export async function answerTradeOff(conversationId: string, choice: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No active user.");
+
+  const [convo] = await db.select().from(conversation).where(eq(conversation.id, conversationId)).limit(1);
+  if (!convo || convo.userId !== user.id) throw new Error("Conversation not found.");
+  if (!convo.applicationId) throw new Error("No application on this conversation.");
+  if (!(TRADE_OFF_CHOICES as readonly string[]).includes(choice)) throw new Error("Not one of the options.");
+  const picked = choice as TradeOffChoice;
+
+  // Already answered, or never asked — nothing to record. Not an error: a
+  // double-click and a stale tab both land here.
+  if (!(await openTradeOff(convo.applicationId))) {
+    revalidatePath(`/applications/new/chat/${conversationId}`);
+    return;
+  }
+
+  const asked = await openTradeOffQuestion(convo.applicationId);
+  if (!asked) throw new Error("The trade-off question could not be read back.");
+
+  await sayInbound(conversationId, asked.options[picked]);
+  await respondToTradeOff(conversationId, convo.applicationId, asked.options[picked], user.id, picked);
+  revalidatePath(`/applications/new/chat/${conversationId}`);
+}
+
 export async function rejectShortlist(conversationId: string, formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   if (!user) throw new Error("No active user.");

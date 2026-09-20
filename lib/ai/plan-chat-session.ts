@@ -57,7 +57,8 @@ export async function answerPlanQuestion(
     // — an applicant asking "what if price mattered more" should be
     // answerable without first re-deriving a cohort weight baseline.
     enforceWeightBaseline: false,
-    suggestedWeights: null,
+    preferenceSignals: [],
+    dynamicWeights: null,
   };
 
   const result = await planConverse({

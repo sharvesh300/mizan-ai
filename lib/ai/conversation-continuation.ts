@@ -27,7 +27,7 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { application, conversation, recommendation } from "@/db/schema";
-import { sayAssistant, type RecommendationClarifyPayload, type RecommendationShortlistPayload } from "@/lib/ai/intake-session";
+import { sayAssistant, type RecommendationClarifyPayload, type RecommendationShortlistPayload, type RecommendationTradeOffPayload } from "@/lib/ai/intake-session";
 
 /**
  * Exported so `lib/ai/recommendation-session.ts` can find the conversation a
@@ -118,6 +118,52 @@ export async function announceRecommendationOutcome(applicationId: string): Prom
   // at this" case, since nothing was produced to show.
   await sayAssistant(convo.id, "An advisor is taking a closer look at the plan before we show it to you.", { applicationId });
   await db.update(conversation).set({ status: "awaiting_review", lastOutboundAt: new Date() }).where(eq(conversation.id, convo.id));
+  return convo.id;
+}
+
+/**
+ * The applicant-facing half of `tradeOff` (lib/ai/graph/nodes/tradeoff.ts).
+ *
+ * `persistTradeOff` (lib/ai/recommendation-session.ts) already wrote the
+ * authoritative `recommendation_tradeoff_asked` row — race-safe, and the gate
+ * against ever asking twice — before this runs. This only tells the applicant,
+ * and opens the conversation for their reply.
+ *
+ * The two options are posted with the question rather than left implicit: the
+ * answer is matched against them (`readTradeOffAnswer`), so the applicant
+ * should be able to see what they are choosing between.
+ */
+export async function announceTradeOff(
+  applicationId: string,
+  question: string,
+  options: { premium: string; requirement: string },
+): Promise<string | null> {
+  const convo = await latestConversationForApplication(applicationId);
+  if (!convo || convo.status === "completed") return null;
+
+  const payload: RecommendationTradeOffPayload = { kind: "recommendation_tradeoff", question, options, applicationId };
+  await sayAssistant(convo.id, question, payload);
+  await db.update(conversation).set({ status: "awaiting_user", lastOutboundAt: new Date() }).where(eq(conversation.id, convo.id));
+  return convo.id;
+}
+
+/**
+ * The applicant-facing half of `negotiate` (lib/ai/graph/nodes/negotiate.ts),
+ * for the `convince` outcome only: the applicant rejected the shortlist, the
+ * agent answered the objection from plan facts, and the shortlist ON FILE
+ * stands. No new card is posted, because there is no new shortlist — the one
+ * already in the thread is still the recommendation, and this is the reply
+ * that argues for it.
+ *
+ * A `concede` never reaches here: it rebuilds, and
+ * `announceRecommendationOutcome` posts the new card instead.
+ */
+export async function announceNegotiationReply(applicationId: string, reply: string): Promise<string | null> {
+  const convo = await latestConversationForApplication(applicationId);
+  if (!convo || convo.status === "completed") return null;
+
+  await sayAssistant(convo.id, reply, { applicationId });
+  await db.update(conversation).set({ status: "awaiting_user", lastOutboundAt: new Date() }).where(eq(conversation.id, convo.id));
   return convo.id;
 }
 

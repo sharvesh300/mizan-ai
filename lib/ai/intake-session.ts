@@ -309,6 +309,28 @@ export const isRecommendationClarifyPayload = (payload: unknown): payload is Rec
   typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "recommendation_clarify";
 
 /**
+ * The trade-off question (lib/ai/graph/nodes/tradeoff.ts), rendered as two
+ * buttons rather than as free text to type at.
+ *
+ * `options` rides on the payload because the applicant has to READ what they
+ * are choosing between — but nothing here is trusted as a data source on the
+ * way back. `answerTradeOff` (app/applications/new/actions.ts) takes only
+ * which of the two was pressed and re-derives the label, the trade-off and
+ * the signals it writes from the authoritative
+ * `recommendation_tradeoff_asked` conversation_action row the server itself
+ * wrote. Same discipline as `RecommendationClarifyPayload` above.
+ */
+export type RecommendationTradeOffPayload = {
+  kind: "recommendation_tradeoff";
+  question: string;
+  options: { premium: string; requirement: string };
+  applicationId: string;
+};
+
+export const isRecommendationTradeOffPayload = (payload: unknown): payload is RecommendationTradeOffPayload =>
+  typeof payload === "object" && payload !== null && (payload as { kind?: string }).kind === "recommendation_tradeoff";
+
+/**
  * Post the assistant's reply and open a question row per thing it asked.
  *
  * The questionnaire itself rides on the message payload, so the form the
