@@ -11,11 +11,38 @@
 // change what a plan actually costs or covers.
 
 export * from "./types";
-export { CONSTANTS_VERSION, INPATIENT_ADMISSION_COST, OUTPATIENT_VISIT_COST, buildScenario, isScenarioSelectable } from "./scenarios";
+export { CONSTANTS_VERSION, INPATIENT_ADMISSION_COST, OUTPATIENT_VISIT_COST, buildScenario, isScenarioSelectable, scenarioForRecord } from "./scenarios";
 export { estimateAnnualCost } from "./cost";
-export { CRITERIA, MAX_CRITERIA, MAX_WEIGHT, MIN_WEIGHT, isCriterionRelevant, scorePlans } from "./score";
+export { CRITERIA, MAX_CRITERIA, MAX_WEIGHT, MIN_WEIGHT, isCriterionRelevant, scorePlans, settleWeights } from "./score";
 export { BASELINE_MAX_CRITERIA, WEIGHT_DELTA, suggestDefaultWeights } from "./default-weights";
+export {
+  PREFERENCE_DIRECTIONS,
+  PREFERENCE_SOURCES,
+  mergeSignals,
+  signalsFromRecord,
+  validateSignals,
+  type PreferenceDirection,
+  type PreferenceEvidence,
+  type PreferenceSignal,
+  type PreferenceSource,
+} from "./preference";
+export {
+  MAX_SIGNAL_SHIFT,
+  NEW_CRITERION_SEED,
+  calculateDynamicWeights,
+  type DynamicWeightResult,
+  type WeightExplanation,
+} from "./dynamic-weights";
 export { isEligible, shortlistablePlans } from "./eligibility";
+export {
+  TRADE_OFF_CHOICES,
+  describeTradeOff,
+  detectTradeOff,
+  readTradeOffAnswer,
+  signalsForChoice,
+  type TradeOff,
+  type TradeOffChoice,
+} from "./tradeoff";
 export { priceAllPlans } from "./quote";
 export { fallbackRecommend, type FallbackResult } from "./fallback";
 
