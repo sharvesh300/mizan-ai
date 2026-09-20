@@ -2,26 +2,35 @@
 // one place the recommendation agent otherwise exercised free judgement with
 // no grounding at all. The agent still decides; it decides FROM somewhere.
 //
-// `suggest_default_weights` (lib/ai/tools/plans.ts) must be called before
-// `score_plans` in the real recommendation loop (recommend.ts sets
-// `enforceWeightBaseline: true`); `score_plans` then requires the agent's
-// weights to overlap this baseline and stay within `WEIGHT_DELTA` of it for
-// any criterion the baseline also named. Read-only plan-chat re-scoring
-// (plan-converse.ts) sets `enforceWeightBaseline: false` — an applicant
-// asking "what if price mattered a lot more" about an already-recommended
-// plan should be answerable without re-deriving a cohort baseline first.
+// It is no longer what the agent is handed directly: `calculateDynamicWeights`
+// (./dynamic-weights.ts) takes this as its BASE and shifts it by the
+// applicant's own stated preferences, and that result is what
+// `get_dynamic_weights` (lib/ai/tools/plans.ts) returns and `score_plans`
+// holds the agent to, within `WEIGHT_DELTA`. This file answers "where does
+// this cohort start"; the engine answers "where does this person end up".
 //
 // This is not new judgement: it is the same rationale `assignCohort`
 // (lib/assessment/cohort.ts) already states in prose, and `pickByCohort`
 // (lib/recommendation/fallback.ts) already reads as a tie-break rule, read a
 // third time as starting weights instead of a single winner.
 
-import { isCriterionRelevant, MAX_CRITERIA, MAX_WEIGHT, MIN_WEIGHT } from "./score";
+import { isCriterionRelevant, MAX_CRITERIA, MAX_WEIGHT, MIN_WEIGHT, settleWeights } from "./score";
 import type { AssessmentRecord } from "@/lib/assessment";
 import type { CriterionId, CriterionWeight } from "./types";
 
-/** How far score_plans lets the agent move a baseline criterion's weight, in either direction. A declared tolerance, not a derived one — wide enough for a real adjustment, narrow enough that the agent cannot quietly reverse the cohort's own priority. */
-export const WEIGHT_DELTA = 0.15;
+/**
+ * How far `score_plans` lets the agent move a weight from the set it was
+ * handed, in either direction.
+ *
+ * Tightened from 0.15 to 0.10 when the handed set stopped being the bare
+ * cohort baseline and became `calculateDynamicWeights`'s output — a set that
+ * already carries this applicant's stated preferences. The wider tolerance
+ * existed because the baseline was cohort-generic and the agent's read of the
+ * individual record was the only thing that could narrow it; that read now
+ * arrives as signals, through the engine, with provenance. What is left for
+ * the agent is fine-tuning, not re-litigating.
+ */
+export const WEIGHT_DELTA = 0.1;
 
 /** Deliberately smaller than MAX_CRITERIA (5) so the agent always has room to add its own read of the record — a declared need, a named provider — alongside the baseline, not just adjust it. */
 export const BASELINE_MAX_CRITERIA = 3;
@@ -92,14 +101,16 @@ const DEFAULT_PRIORITY: Priority[] = [
 ];
 
 const clamp = (n: number) => Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, n));
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * The deterministic baseline `suggest_default_weights` hands the agent.
+ * The deterministic cohort baseline `calculateDynamicWeights` starts from.
  * Always at least 1 criterion (falls through cohort → generic default →
  * `premium_cost` alone, which is relevant to every record), never more than
  * `min(BASELINE_MAX_CRITERIA, MAX_CRITERIA)`, every weight inside
- * `[MIN_WEIGHT, MAX_WEIGHT]`, summing to 1 before rounding.
+ * `[MIN_WEIGHT, MAX_WEIGHT]`, and summing to 1 whenever the clamp leaves room
+ * for it — a lone surviving criterion caps at `MAX_WEIGHT` rather than
+ * returning 1.0, because `scorePlans` refuses an out-of-range weight outright
+ * and renormalises a short one without complaint. See `settleWeights`.
  */
 export function suggestDefaultWeights(record: AssessmentRecord, cohort: string): CriterionWeight[] {
   let relevant = (COHORT_PRIORITY[cohort] ?? DEFAULT_PRIORITY).filter((p) => isCriterionRelevant(p.criterionId, record));
@@ -107,6 +118,12 @@ export function suggestDefaultWeights(record: AssessmentRecord, cohort: string):
   if (relevant.length === 0) relevant = [{ criterionId: "premium_cost", baseWeight: 1 }];
 
   const chosen = relevant.slice(0, Math.min(BASELINE_MAX_CRITERIA, MAX_CRITERIA));
-  const sum = chosen.reduce((s, c) => s + c.baseWeight, 0);
-  return chosen.map((c) => ({ criterionId: c.criterionId, weight: round2(clamp(c.baseWeight / sum)) }));
+
+  // Clamp FIRST, then settle the clamped set — not scale-then-clamp, which
+  // silently broke the sum-to-1 claim this docblock makes: two surviving
+  // priorities of 0.6 and 0.25 scale to 0.71 and 0.29, and the 0.71 clamps
+  // back to 0.6, leaving a set summing to 0.89. `scorePlans` renormalises
+  // again and hid it, but these weights are now the base
+  // `calculateDynamicWeights` shifts from, and they are shown to an advisor.
+  return settleWeights(chosen.map((c) => ({ criterionId: c.criterionId, weight: clamp(c.baseWeight) })));
 }

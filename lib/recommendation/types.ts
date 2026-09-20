@@ -90,6 +90,14 @@ export type ScoreResult = {
   /** Same criteria, weights scaled to sum to 1 — what the arithmetic actually used. */
   normalisedWeights: CriterionWeight[];
   perPlan: ScoredPlan[];
+  /**
+   * The basket `out_of_pocket_exposure` was measured under, and the constants
+   * that priced it. Present whenever that criterion was weighted — it is the
+   * one criterion whose raw value depends on an assumption rather than on a
+   * plan term, so the assumption travels with the score into the trace
+   * instead of being invisible inside it.
+   */
+  exposureScenario: { id: CostScenarioId; constantsVersion: string } | null;
 };
 
 // ---------------------------------------------------------------------------

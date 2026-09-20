@@ -11,11 +11,51 @@
 import type { AssessmentRecord, Catalogue, PlanTerms } from "@/lib/assessment";
 import { admitsKey, readNeeds } from "@/lib/assessment";
 import { estimateAnnualCost } from "./cost";
-import { buildScenario } from "./scenarios";
+import { buildScenario, CONSTANTS_VERSION, scenarioForRecord } from "./scenarios";
 import type { CriterionContribution, CriterionDirection, CriterionId, CriterionWeight, ScoredPlan, ScoreResult } from "./types";
 
 export const MIN_WEIGHT = 0.05;
 export const MAX_WEIGHT = 0.6;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Scale a weight set to sum to 1, rounded to 2dp, WITHOUT ever pushing a
+ * weight outside `[MIN_WEIGHT, MAX_WEIGHT]`.
+ *
+ * The two goals genuinely conflict: a set with a single criterion in it
+ * cannot both sum to 1 and stay under a 0.6 cap. The cap wins, because
+ * `scorePlans` rejects an out-of-range weight outright — a set summing to 0.6
+ * is scored (it renormalises internally), a set containing 1.0 is an
+ * exception. So the rounding residue is placed only where there is headroom,
+ * and when there is none it is simply left: sum < 1 is the honest outcome, a
+ * weight the engine will refuse is not.
+ */
+export function settleWeights(weights: CriterionWeight[]): CriterionWeight[] {
+  if (weights.length === 0) return weights;
+
+  const total = weights.reduce((s, w) => s + w.weight, 0);
+  const scaled = weights.map((w) => ({
+    criterionId: w.criterionId,
+    weight: round2(Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, total > 0 ? w.weight / total : 1 / weights.length))),
+  }));
+
+  let residue = round2(1 - scaled.reduce((s, w) => s + w.weight, 0));
+  if (residue === 0) return scaled;
+
+  // Largest first when adding, smallest first when removing — the weight best
+  // able to absorb the change is the one least distorted by it.
+  const order = [...scaled].sort((a, b) => (residue > 0 ? b.weight - a.weight : a.weight - b.weight));
+  for (const w of order) {
+    if (residue === 0) break;
+    const headroom = residue > 0 ? round2(MAX_WEIGHT - w.weight) : round2(MIN_WEIGHT - w.weight);
+    const applied = residue > 0 ? Math.min(residue, headroom) : Math.max(residue, headroom);
+    if (applied === 0) continue;
+    w.weight = round2(w.weight + applied);
+    residue = round2(residue - applied);
+  }
+  return scaled;
+}
 export const MAX_CRITERIA = 5;
 
 type CriterionDef = {
@@ -55,8 +95,14 @@ export const CRITERIA: CriterionDef[] = [
     // small next to it. Scoped to the non-premium term, this is an
     // independent signal: two plans with the same premium can still differ
     // here on deductible and co-pay design.
+    // The basket is the RECORD's own (`scenarioForRecord`), not a fixed
+    // middle: an applicant with a declared maternity need and an expected
+    // admission, or a declared chronic condition, does not have a
+    // medium-outpatient year, and scoring their exposure as though they did
+    // measured a plan against a life they did not describe. The scenario
+    // chosen travels out on `ScoreResult.exposureScenario`.
     value: (plan, record) => {
-      const breakdown = estimateAnnualCost(plan, buildScenario("MEDIUM_OUTPATIENT", record));
+      const breakdown = estimateAnnualCost(plan, buildScenario(scenarioForRecord(record), record));
       return breakdown.deductibleApplied + breakdown.memberCopay;
     },
   },
@@ -182,5 +228,11 @@ export function scorePlans(
     row.rank = i + 1;
   });
 
-  return { rawWeights: weights, normalisedWeights, perPlan };
+  // Only when the criterion that depends on it was actually weighted —
+  // otherwise no basket was assumed and claiming one would be noise.
+  const exposureScenario = weights.some((w) => w.criterionId === "out_of_pocket_exposure")
+    ? { id: scenarioForRecord(record), constantsVersion: CONSTANTS_VERSION }
+    : null;
+
+  return { rawWeights: weights, normalisedWeights, perPlan, exposureScenario };
 }

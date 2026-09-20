@@ -53,6 +53,27 @@ export function isScenarioSelectable(id: CostScenarioId, record: AssessmentRecor
 }
 
 /**
+ * The scenario that describes THIS record, for the one caller that has to
+ * pick without an agent naming one: `out_of_pocket_exposure`
+ * (./score.ts), which scores the whole panel and cannot ask.
+ *
+ * It used to hardcode `MEDIUM_OUTPATIENT` for everybody. That made the
+ * criterion measure a basket the record itself contradicts — an applicant
+ * with a declared maternity need and an expected admission, or a declared
+ * chronic condition, was scored on 8 routine outpatient visits and nothing
+ * else — and `verify` could never catch it, because the figure is never
+ * spoken by a tool.
+ *
+ * Ordered most-specific-first: the applicant's own declared needs, then the
+ * chronic basket when a condition is on file, then the neutral middle.
+ */
+export function scenarioForRecord(record: AssessmentRecord): CostScenarioId {
+  if (isScenarioSelectable("CUSTOM_FROM_APPLICANT", record)) return "CUSTOM_FROM_APPLICANT";
+  if (isScenarioSelectable("HIGH_OUTPATIENT", record)) return "HIGH_OUTPATIENT";
+  return "MEDIUM_OUTPATIENT";
+}
+
+/**
  * Build the scenario. Throws if the scenario is not selectable for this
  * record — callers (the tool layer) turn that into a structured error the
  * agent can act on, per the vocabulary-validation table.
