@@ -29,6 +29,20 @@
       "when": 1789460547092,
       "tag": "0003_watery_dormammu",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789924615031,
+      "tag": "0004_rare_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789926589042,
+      "tag": "0005_next_vargas",
+      "breakpoints": true
     }
   ]
 }

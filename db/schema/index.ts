@@ -19,4 +19,5 @@ export * from "./questions";
 export * from "./ai-decision";
 export * from "./actions";
 export * from "./extraction";
+export * from "./preference";
 export * from "./ai-views";

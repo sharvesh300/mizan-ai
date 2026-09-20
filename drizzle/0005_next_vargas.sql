@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `one_tradeoff_asked_per_application` ON `conversation_action` (`subject_id`) WHERE "conversation_action"."subject_type" = 'application' and "conversation_action"."action_type" = 'recommendation_tradeoff_asked';--> statement-breakpoint
+CREATE UNIQUE INDEX `one_tradeoff_answer_per_application` ON `conversation_action` (`subject_id`) WHERE "conversation_action"."subject_type" = 'application' and "conversation_action"."action_type" = 'recommendation_tradeoff_answered';

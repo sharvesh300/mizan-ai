@@ -56,5 +56,15 @@ export const conversationAction = sqliteTable(
     uniqueIndex("one_clarify_answer_per_application")
       .on(table.subjectId)
       .where(sql`${table.subjectType} = 'application' and ${table.actionType} = 'recommendation_clarify_answered'`),
+    // Same guarantee for the trade-off question (lib/ai/graph/nodes/tradeoff.ts):
+    // an applicant is asked which side of a hard gate they want ONCE, and
+    // their answer is turned into weights once, however many times the
+    // background job is retried or however fast they reply twice.
+    uniqueIndex("one_tradeoff_asked_per_application")
+      .on(table.subjectId)
+      .where(sql`${table.subjectType} = 'application' and ${table.actionType} = 'recommendation_tradeoff_asked'`),
+    uniqueIndex("one_tradeoff_answer_per_application")
+      .on(table.subjectId)
+      .where(sql`${table.subjectType} = 'application' and ${table.actionType} = 'recommendation_tradeoff_answered'`),
   ],
 );
