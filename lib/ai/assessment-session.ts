@@ -45,7 +45,7 @@ import { runAssessment } from "@/lib/ai/graph";
 import type { AssessmentOutcome } from "@/lib/ai/graph/state";
 import { ASSESSMENT_PROMPT_VERSION } from "@/lib/ai/graph/nodes/assessment";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
-import { admitsKey, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
+import { admitsKey, deriveRecord, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
 
 /** Statuses that mean an application is no longer in play. */
 const TERMINAL: ApplicationStatus[] = ["withdrawn", "declined", "expired", "policy_issued"];
@@ -146,7 +146,13 @@ export async function loadAssessmentInputs(applicationId: string): Promise<{
   };
 
   return {
-    record,
+    // `deriveRecord` (lib/assessment/derive.ts) is applied HERE, at the one
+    // place a record is assembled from rows, and nowhere else: a declared
+    // condition implies a need to cover it, and a comma-joined priority is
+    // several priorities. Both are readings of what the applicant said, not
+    // edits to it — the rows keep their own words — so every record gets the
+    // same reading whether it was captured today or months ago.
+    record: deriveRecord(record),
     catalogue,
     context: {
       // Explicit rather than read inside a rule, so replaying an assessment

@@ -18,6 +18,7 @@ import type { AssessmentContext, AssessmentRecord, Catalogue, Flag } from "./typ
 export * from "./types";
 export { assignCohort, COHORTS, type CohortAssignment } from "./cohort";
 export { covers, waitMonths, clearsInTime, readNeeds } from "./constraint-rules";
+export { DERIVED_NEED_PREFIX, deriveImplicitNeeds, deriveRecord, isDerivedNeedId, splitPriorities } from "./derive";
 
 /** What happens next to the application, decided by the flags alone. */
 export type Gate = "blocked" | "needs_review" | "auto";
