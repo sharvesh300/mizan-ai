@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ChatLauncher } from "@/components/chat/chat-launcher";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/toast";
+import { listIntakeConversations } from "@/lib/queries";
 import { getCurrentUser, listUsers } from "@/lib/session";
 import "./globals.css";
 
@@ -17,8 +19,21 @@ export const metadata: Metadata = {
   description: "AI-assisted health insurance advisory",
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children, chat }: LayoutProps<"/">) {
   const [users, currentUser] = await Promise.all([listUsers(), getCurrentUser()]);
+
+  /**
+   * Does the launcher need a dot on it?
+   *
+   * True when a conversation is waiting on the applicant rather than on us —
+   * `awaiting_review` means a person now owns the record, which is the one
+   * state where nothing will happen until an advisor acts, so it does NOT
+   * count. An active conversation that is not completed does.
+   */
+  const chatAttention =
+    currentUser?.role === "applicant"
+      ? (await listIntakeConversations(currentUser.id)).some((convo) => convo.status === "active")
+      : false;
 
   return (
     // suppressHydrationWarning: next-themes writes the theme class onto <html>
@@ -42,6 +57,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                     </div>
                   </header>
                   <div className="min-w-0 flex-1">{children}</div>
+
+                  {/* The applicant's way back into their conversation from any
+                      page. The drawer it opens is the `chat` slot below — an
+                      intercepted render of the real chat route, so the URL,
+                      the back button and a reload all behave. */}
+                  {currentUser.role === "applicant" ? <ChatLauncher attention={chatAttention} /> : null}
                 </SidebarInset>
               </SidebarProvider>
             ) : (
@@ -52,6 +73,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 </p>
               </main>
             )}
+            {chat}
           </Toaster>
         </ThemeProvider>
       </body>
