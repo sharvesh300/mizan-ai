@@ -9,6 +9,9 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApplicationJourney } from "@/components/application-journey";
+import { CriterionBars } from "@/components/crm/criterion-bars";
+import { band as priorityBand } from "@/components/crm/queue-row";
+import { SectionCard } from "@/components/crm/section-card";
 import { AssessmentReview } from "@/components/assessment-review";
 import { CorrectionRequest } from "@/components/correction-request";
 import { RecommendationQualityCheck, RecommendationReview } from "@/components/recommendation-review";
@@ -52,6 +55,7 @@ import {
   getPolicyForApplication,
   getQuotes,
   getQuoteOutlays,
+  getRecommendationWeights,
   getRecommendation,
   getRecommendationDecision,
   getReviewTasksForApplication,
@@ -412,7 +416,7 @@ async function AdvisorRecord({
   person: Person;
   owner: { fullName: string; email: string };
 }) {
-  const [assessment, reviews, decision, recoDecision, outlays] = await Promise.all([
+  const [assessment, reviews, decision, recoDecision, outlays, weights] = await Promise.all([
     getAssessment(applicationId),
     getReviewTasksForApplication(applicationId, recommendation?.recommendation.id),
     getClassificationDecision(applicationId),
@@ -420,6 +424,9 @@ async function AdvisorRecord({
     // Broker-only: the modelled year cost behind each quote. Replaces the
     // "Fit score 0.00" this panel used to print (see `PlanComparison`).
     getQuoteOutlays(applicationId),
+    // Broker-only: the criteria the comparison was scored on, and the
+    // applicant's own words that moved them.
+    getRecommendationWeights(applicationId),
   ]);
 
   // The one thing on this page that is waiting on a person. A resolved task is
@@ -603,25 +610,46 @@ async function AdvisorRecord({
                 </p>
               </div>
 
-              {recommendation.rejections.length > 0 ? (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Why the alternatives lost</p>
-                    {recommendation.rejections.map((rejection) => (
-                      <div key={rejection.planId} className="flex gap-2 rounded-lg border p-3 text-sm">
-                        <XCircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{rejection.plan.name}</p>
-                          <p className="text-muted-foreground text-pretty">{rejection.reason}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : null}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* The alternatives, and what the comparison was scored on. These used
+            to sit at the bottom of the recommendation card, below two blocks
+            of prose — which is the wrong place for them: "a broker's job is
+            judgement, and judgement needs the alternatives, not just the
+            answer". Side by side they are read together, which is how they
+            answer each other. */}
+        {recommendation || weights ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {recommendation && recommendation.rejections.length > 0 ? (
+              <SectionCard
+                title="Why the other plans lost"
+                description="One reason per plan that was not recommended, in the broker's register."
+              >
+                <ul className="space-y-2.5">
+                  {recommendation.rejections.map((rejection) => (
+                    <li key={rejection.planId} className="flex gap-2 rounded-lg border p-3 text-sm">
+                      <XCircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="font-medium">{rejection.plan.name}</p>
+                        <p className="text-muted-foreground text-pretty">{rejection.reason}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            ) : null}
+
+            {weights ? (
+              <SectionCard
+                title="What this was scored on"
+                description="The criteria the comparison weighted, and the applicant's own words that moved them off the cohort baseline."
+              >
+                <CriterionBars weights={weights} />
+              </SectionCard>
+            ) : null}
+          </div>
         ) : null}
       </TabsContent>
 
@@ -633,50 +661,64 @@ async function AdvisorRecord({
             </CardContent>
           </Card>
         ) : (
-          reviews.map(({ task, decisions }) => (
-            <Card key={task.id}>
-              <CardHeader>
-                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                  {task.reason}
-                  <StatusBadge tone={reviewStatusTone[task.status]}>{reviewStatusLabel[task.status]}</StatusBadge>
-                </CardTitle>
-                <CardDescription>
-                  {task.subjectType.replace(/_/g, " ")} · priority {task.priorityScore} · raised{" "}
-                  {dateLabel(task.createdAt)}
-                </CardDescription>
-              </CardHeader>
-              {decisions.length > 0 ? (
+          reviews.map(({ task, decisions }) => {
+            const note = engineNote(task.reason);
+            const priority = priorityBand(task.priorityScore);
+            return (
+              <Card key={task.id}>
+                <CardHeader>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge tone={priority.tone}>{priority.label}</StatusBadge>
+                    <StatusBadge tone={reviewStatusTone[task.status]}>{reviewStatusLabel[task.status]}</StatusBadge>
+                    {note?.code ? (
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground">
+                        {note.code}
+                      </code>
+                    ) : null}
+                  </div>
+                  <CardTitle className="text-base text-pretty">{note?.text ?? task.reason}</CardTitle>
+                  <CardDescription>
+                    On the {task.subjectType.replace(/_/g, " ")} · raised {dateLabel(task.createdAt)}
+                    {task.resolvedAt ? ` · closed ${dateLabel(task.resolvedAt)}` : ""}
+                  </CardDescription>
+                </CardHeader>
                 <CardContent className="space-y-3">
-                  {decisions.map(({ decision, actor }) => (
-                    <div key={decision.id} className="flex gap-2.5 text-sm">
-                      <StatusDot tone={reviewActionTone[decision.action]} className="mt-1.5" />
-                      <div className="min-w-0 space-y-1">
-                        <p>
-                          <span className="font-medium">{reviewActionLabel[decision.action]}</span> by{" "}
-                          {actor.fullName} ·{" "}
+                  {decisions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {task.status === "resolved"
+                        ? "Closed without a decision recorded against it."
+                        : "Still open — nobody has decided this yet."}
+                    </p>
+                  ) : (
+                    decisions.map(({ decision, actor }) => (
+                      <div key={decision.id} className="rounded-lg border p-3">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <StatusBadge tone={reviewActionTone[decision.action]}>
+                            {reviewActionLabel[decision.action]}
+                          </StatusBadge>
+                          <span className="font-medium">{actor.fullName}</span>
                           <span className="text-muted-foreground">{dateLabel(decision.decidedAt)}</span>
-                        </p>
+                        </div>
                         {decision.notes ? (
-                          <p className="text-muted-foreground text-pretty">{decision.notes}</p>
+                          <p className="mt-2 text-sm text-muted-foreground text-pretty">{decision.notes}</p>
                         ) : null}
                         {/* Same decision, the applicant's register. Kept next
                             to the note so the two can be read against each
                             other — one explanation shown twice reads wrong in
                             one of the views, and this is where you would see it. */}
                         {memberMessageOf(decision.payload) ? (
-                          <p className="rounded-lg border border-dashed px-3 py-2 text-pretty">
-                            <span className="text-xs text-muted-foreground">What the applicant was told</span>
-                            <br />
-                            {memberMessageOf(decision.payload)}
-                          </p>
+                          <div className="mt-2 rounded-lg border border-dashed px-3 py-2">
+                            <p className="text-xs text-muted-foreground">What the applicant was told</p>
+                            <p className="mt-0.5 text-sm text-pretty">{memberMessageOf(decision.payload)}</p>
+                          </div>
                         ) : null}
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </CardContent>
-              ) : null}
-            </Card>
-          ))
+              </Card>
+            );
+          })
         )}
       </TabsContent>
 
