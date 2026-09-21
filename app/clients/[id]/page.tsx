@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { FileTextIcon, MessageSquareIcon, ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -24,6 +25,12 @@ import { getClient, getClientTimeline } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 
 const OPEN_STATUSES = ["policy_issued", "declined", "withdrawn", "expired"];
+
+export async function generateMetadata(props: PageProps<"/clients/[id]">): Promise<Metadata> {
+  const { id } = await props.params;
+  const client = await getClient(id);
+  return { title: client ? `${client.person.fullName} · Mizan AI` : "Client · Mizan AI" };
+}
 
 export default async function ClientPage(props: PageProps<"/clients/[id]">) {
   const { id } = await props.params;
@@ -89,7 +96,10 @@ export default async function ClientPage(props: PageProps<"/clients/[id]">) {
         </StatRow>
 
         <Tabs defaultValue="timeline">
-          <TabsList>
+          {/* Four labels with counts do not fit 375px. Scrolling the strip
+              keeps every tab reachable; wrapping it would push the panel
+              below the fold on the page's most-used view. */}
+          <TabsList className="max-w-full overflow-x-auto">
             <TabsTrigger value="timeline">Timeline ({timeline.length})</TabsTrigger>
             <TabsTrigger value="cover">Cover ({client.policies.length})</TabsTrigger>
             <TabsTrigger value="applications">Applications ({client.applications.length})</TabsTrigger>
@@ -173,7 +183,11 @@ export default async function ClientPage(props: PageProps<"/clients/[id]">) {
                           age {row.age} · {row.budget.replace(/_/g, " ")} budget · via{" "}
                           {row.intakeSource.replace(/_/g, " ")} · last moved {dateLabel(row.statusChangedAt)}
                         </p>
-                        <Progress value={journeyProgress(row.status)} className="h-1 max-w-xs" />
+                        <Progress
+                          value={journeyProgress(row.status)}
+                          aria-label={`${applicationStatusLabel[row.status]} — progress for ${row.reference}`}
+                          className="h-1 max-w-xs"
+                        />
                       </div>
                     </Link>
                   </li>

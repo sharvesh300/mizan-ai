@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { UsersIcon } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -25,6 +26,11 @@ const SEGMENTS = [
   { value: "covered", label: "Covered" },
   { value: "duplicates", label: "Duplicate risk" },
 ] as const;
+
+export const metadata: Metadata = {
+  title: "Clients · Mizan AI",
+  description: "Everyone this brokerage covers or is working on.",
+};
 
 export default async function ClientsPage(props: PageProps<"/clients">) {
   const user = await getCurrentUser();

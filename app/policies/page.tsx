@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { ArrowRightIcon, ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
 import { PageBody, PageHeader } from "@/components/page-header";
@@ -9,6 +10,11 @@ import { UtilizationBar } from "@/components/utilization";
 import { dateLabel, money } from "@/lib/domain";
 import { listAllPolicies, listPoliciesForUser } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+
+export const metadata: Metadata = {
+  title: "Policies · Mizan AI",
+  description: "Live cover and how much of it has been used.",
+};
 
 export default async function PoliciesPage() {
   const user = await getCurrentUser();

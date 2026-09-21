@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { ArrowRightIcon, FileTextIcon, MessageSquareIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { FilterBar } from "@/components/crm/filter-bar";
@@ -35,6 +36,11 @@ const SEGMENTS: { value: string; label: string; match: (status: string) => boole
   { value: "recommended", label: "Plans ready", match: (s) => s === "recommended" || s === "plan_selected" },
   { value: "issued", label: "Policy live", match: (s) => s === "policy_issued" },
 ];
+
+export const metadata: Metadata = {
+  title: "Applications · Mizan AI",
+  description: "Every application in the pipeline.",
+};
 
 export default async function ApplicationsPage(props: PageProps<"/applications">) {
   const user = await getCurrentUser();
@@ -158,7 +164,11 @@ export default async function ApplicationsPage(props: PageProps<"/applications">
                           <StatusBadge tone={applicationStatusTone[app.status]}>
                             {applicationStatusLabel[app.status]}
                           </StatusBadge>
-                          <Progress value={journeyProgress(app.status)} className="h-1" />
+                          <Progress
+                            value={journeyProgress(app.status)}
+                            aria-label={`${applicationStatusLabel[app.status]} — progress for ${app.reference}`}
+                            className="h-1"
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{dateLabel(app.statusChangedAt)}</TableCell>
@@ -221,7 +231,11 @@ export default async function ApplicationsPage(props: PageProps<"/applications">
                         {app.personName}
                         {app.planName ? ` · ${app.planName}` : ""} · started {dateLabel(app.createdAt)}
                       </p>
-                      <Progress value={journeyProgress(app.status)} className="h-1 max-w-xs" />
+                      <Progress
+                        value={journeyProgress(app.status)}
+                        aria-label={`${applicationStatusLabel[app.status]} — progress for ${app.reference}`}
+                        className="h-1 max-w-xs"
+                      />
                     </div>
                     <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
                   </Link>

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { ClockIcon, LayersIcon } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -25,6 +26,11 @@ const MATCH: Record<string, (row: Card) => boolean> = {
   review: (row) => row.status === "in_review",
   low: (row) => row.confidence === "low",
   unassessed: (row) => row.cohort == null,
+};
+
+export const metadata: Metadata = {
+  title: "Pipeline · Mizan AI",
+  description: "Every application still in play, by stage.",
 };
 
 export default async function PipelinePage(props: PageProps<"/pipeline">) {

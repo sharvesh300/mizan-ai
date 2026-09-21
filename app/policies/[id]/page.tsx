@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { ArrowRightIcon, LightbulbIcon } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +24,16 @@ import {
 } from "@/lib/domain";
 import { listEvents, listReassessments } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+
+export async function generateMetadata(props: PageProps<"/policies/[id]">): Promise<Metadata> {
+  const { id } = await props.params;
+  const [row] = await db
+    .select({ policyNumber: policyTable.policyNumber })
+    .from(policyTable)
+    .where(eq(policyTable.id, id))
+    .limit(1);
+  return { title: row ? `${row.policyNumber} · Mizan AI` : "Policy · Mizan AI" };
+}
 
 export default async function PolicyPage(props: PageProps<"/policies/[id]">) {
   const { id } = await props.params;

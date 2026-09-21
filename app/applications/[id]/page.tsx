@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -62,6 +63,16 @@ import {
   isSelectionReview,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+
+/**
+ * The tab title is the reference, so an advisor with six records open can tell
+ * them apart without visiting each one.
+ */
+export async function generateMetadata(props: PageProps<"/applications/[id]">): Promise<Metadata> {
+  const { id } = await props.params;
+  const record = await getApplication(id);
+  return record ? { title: `${record.application.reference} · Mizan AI` } : { title: "Application · Mizan AI" };
+}
 
 export default async function ApplicationPage(props: PageProps<"/applications/[id]">) {
   const { id } = await props.params;
@@ -453,7 +464,7 @@ async function AdvisorRecord({
 
   return (
     <Tabs defaultValue="record">
-      <TabsList>
+      <TabsList className="max-w-full overflow-x-auto">
         <TabsTrigger value="record">Record</TabsTrigger>
         <TabsTrigger value="quotes">Quotes &amp; recommendation</TabsTrigger>
         <TabsTrigger value="review">Review ({reviews.length})</TabsTrigger>

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { CheckCircle2Icon, InboxIcon } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -49,6 +50,11 @@ const GROUPS = [
     match: (row: QueueRowData) => !isBlockedApplication(row) && needsApplicationDecision(row),
   },
 ] as const;
+
+export const metadata: Metadata = {
+  title: "Review queue · Mizan AI",
+  description: "Everything waiting on a human decision.",
+};
 
 export default async function QueuePage() {
   const user = await getCurrentUser();
