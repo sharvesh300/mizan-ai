@@ -314,3 +314,126 @@ export const dateLabel = (value: Date | string | null | undefined): string => {
   const d = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(d);
 };
+
+// ---------------------------------------------------------------------------
+// Engine prose, made readable
+// ---------------------------------------------------------------------------
+//
+// Three kinds of string reach the queue and the record from inside the system,
+// and all three used to render as if a person had written them for a reader:
+//
+//   1. A rule-prefixed note   "duplicate_open_application: Nine open …"
+//   2. An internal failure    "tool-call budget exhausted with no shortlist …"
+//   3. A *negative* note      "No uncertainty — plan_c is the only plan …"
+//
+// (3) is the one that actually misleads: rendered under a heading like "why
+// this needs you", a sentence that says nothing is wrong reads as though
+// something is. So the parsing below does not just tidy text — it reports what
+// KIND of note this is, and the caller decides how loudly to say it.
+
+/** An engine note, split into the parts a UI wants to render separately. */
+export type EngineNote = {
+  /** The rule that produced it, when the note named one. Render as a chip. */
+  code: string | null;
+  /** The prose, without its code prefix, sentence-cased. */
+  text: string;
+  /**
+   * `concern` — a real reason a human is needed.
+   * `reassurance` — the system saying it found nothing troubling. Never render
+   *   this under a "needs your attention" heading.
+   * `failure` — the system did not finish. The advisor is unblocking a
+   *   machine, not exercising judgement, and the wording should say so.
+   */
+  kind: "concern" | "reassurance" | "failure";
+};
+
+/** `some_rule_code: the rest` — the prefix the graph nodes write. */
+const CODE_PREFIX = /^([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\s*[:—-]\s*([\s\S]+)$/;
+
+/** Openers that mean "nothing here", in the several ways the models phrase it. */
+const REASSURANCE = /^no\s+(material|significant|real|particular)?\s*uncertainty\b|^no\s+uncertainty\b|^nothing\s+(here|in this)\b/i;
+
+/**
+ * Strings that were never addressed to a reader, and what to say instead. The
+ * raw text stays available to the caller — an advisor debugging a stuck record
+ * wants it — but it is not what the row leads with.
+ *
+ * Each entry states its own kind, because "the model could not be reached" and
+ * "the rules placed this without a model" read almost identically and mean
+ * opposite things: one is a machine to unblock, the other is the system
+ * working exactly as designed.
+ */
+const REWRITES: { match: RegExp; text: string; kind: EngineNote["kind"] }[] = [
+  {
+    match: /tool[- ]call budget exhausted/i,
+    text: "The system ran out of steps before it could propose a shortlist. Nothing is wrong with the record — it needs re-running or deciding by hand.",
+    kind: "failure",
+  },
+  {
+    match: /model call failed|rate limit exceeded|free-models-per-day/i,
+    text: "The model could not be reached while this was being worked out. The record is intact; the recommendation step did not complete.",
+    kind: "failure",
+  },
+  {
+    match: /rejected twice|invalid option: expected one of/i,
+    text: "The system could not read one of its own tool results and gave up on that step. This needs a human decision rather than a retry.",
+    kind: "failure",
+  },
+  {
+    match: /scoring could not be completed/i,
+    text: "Scoring did not complete, so the ranking below came from plan terms alone rather than from the weighted comparison.",
+    kind: "failure",
+  },
+  {
+    match: /no model judgement was applied/i,
+    text: "Placed by the rules alone — no model judgement was involved.",
+    kind: "reassurance",
+  },
+];
+
+const sentenceCase = (text: string): string =>
+  text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
+
+/**
+ * Read one engine-authored string into something a queue row can render.
+ *
+ * Deliberately conservative: prose the system wrote for a reader is passed
+ * through untouched apart from its code prefix. The only strings this rewrites
+ * are the ones that were never addressed to anybody.
+ */
+export function engineNote(raw: string | null | undefined): EngineNote | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+
+  const prefixed = CODE_PREFIX.exec(trimmed);
+  const code = prefixed?.[1] ?? null;
+  const body = (prefixed?.[2] ?? trimmed).trim();
+
+  const rewrite = REWRITES.find((r) => r.match.test(body));
+  if (rewrite) return { code, text: rewrite.text, kind: rewrite.kind };
+
+  return {
+    code,
+    text: sentenceCase(body),
+    kind: REASSURANCE.test(body) ? "reassurance" : "concern",
+  };
+}
+
+/**
+ * Do these two engine strings say the same thing?
+ *
+ * A review task's `reason` and the decision's `uncertaintyReason` are written
+ * by the same pass and are frequently identical, so a row that renders both
+ * stutters. Compared on their parsed text, because one of them usually
+ * carries a rule-code prefix the other does not, and on a prefix match,
+ * because one is often the other truncated.
+ */
+export function sameNote(a: string | null | undefined, b: string | null | undefined): boolean {
+  const left = engineNote(a)?.text.replace(/\s+/g, " ").toLowerCase();
+  const right = engineNote(b)?.text.replace(/\s+/g, " ").toLowerCase();
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.length >= 40 && longer.startsWith(shorter.slice(0, Math.min(shorter.length, 80)));
+}
