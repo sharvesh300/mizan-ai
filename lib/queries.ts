@@ -271,8 +271,15 @@ async function loadCatalogueTerms(): Promise<PlanTerms[]> {
 // Advisor dashboard
 // ---------------------------------------------------------------------------
 
-/** Stages the funnel counts, in the order an application passes through them. */
-const FUNNEL_STAGES = [
+/**
+ * The stages an application passes through, in order.
+ *
+ * Exported because the dashboard funnel and the pipeline board both count by
+ * them, and a book that reads two different ways on two pages is worse than
+ * one that reads badly on both. Coarser than `application_status` on purpose:
+ * fourteen statuses is the schema's vocabulary, not a broker's.
+ */
+export const FUNNEL_STAGES = [
   { key: "in_intake", label: "In intake", statuses: ["draft", "in_intake"] },
   { key: "submitted", label: "Submitted", statuses: ["submitted"] },
   { key: "assessed", label: "Assessed", statuses: ["assessed", "in_review"] },
@@ -737,6 +744,38 @@ export async function getClientTimeline(personId: string): Promise<TimelineEntry
     .filter((entry) => entry.at != null)
     .sort((a, b) => b.at.getTime() - a.at.getTime());
 }
+
+
+/**
+ * The book as columns — every application that is still in play, grouped by
+ * stage and ordered oldest-first inside each one.
+ *
+ * Oldest-first, not newest: a column is a queue, and the thing worth seeing at
+ * the top of one is what has been sitting there longest. `daysInStage` is
+ * carried per row for the same reason.
+ *
+ * Closed applications are excluded except for `policy_issued`, which is the
+ * board's last column and the point of the whole pipeline. Declined and
+ * withdrawn records are history, not work.
+ */
+export async function getPipeline() {
+  const rows = await listAllApplications();
+
+  return FUNNEL_STAGES.map((stage) => {
+    const cards = rows
+      .filter((row) => (stage.statuses as readonly string[]).includes(row.status))
+      .map((row) => ({ ...row, daysInStage: daysSince(row.statusChangedAt) ?? 0 }))
+      .sort((a, b) => b.daysInStage - a.daysInStage);
+
+    // No per-column aggregates here: the page filters these cards before it
+    // renders them, so a count or a worst-case computed now would describe a
+    // column the advisor is not looking at. The header derives its own from
+    // whatever survives the filter.
+    return { key: stage.key, label: stage.label, cards };
+  });
+}
+
+export type PipelineStage = Awaited<ReturnType<typeof getPipeline>>[number];
 
 /** The live recommendation plus why the other two plans lost. */
 export async function getRecommendation(applicationId: string) {
