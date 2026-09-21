@@ -124,7 +124,7 @@ export default async function PolicyPage(props: PageProps<"/policies/[id]">) {
                 ].map(([label, value]) => (
                   <div key={label}>
                     <dt className="text-xs text-muted-foreground">{label}</dt>
-                    <dd className="font-medium capitalize">{value}</dd>
+                    <dd className="font-medium first-letter:uppercase">{value}</dd>
                   </div>
                 ))}
               </dl>

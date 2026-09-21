@@ -20,11 +20,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { money, monthsLabel, percent } from "@/lib/domain";
 import type { ActiveShortlistPlan } from "@/lib/queries";
 
+const NETWORK_LABEL: Record<string, string> = { restricted: "Restricted", standard: "Standard", wide: "Wide" };
+
+/**
+ * `capitalize` used to sit on the value cell and title-cased every word in it
+ * — "AED 10,000 after 12 months" came out as "AED 10,000 After 12 Months".
+ * Values arrive already written the way they should read.
+ */
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium capitalize tabular-nums">{value}</dd>
+      <dd className="text-right font-medium tabular-nums">{value}</dd>
     </div>
   );
 }
@@ -37,10 +44,10 @@ function PlanTerms({ plan }: { plan: ActiveShortlistPlan }) {
       <Row label="Annual limit" value={money(plan.annualLimit)} />
       <Row
         label="Maternity"
-        value={plan.maternityCovered ? `${money(plan.maternityLimit)} after ${monthsLabel(plan.maternityWaitingPeriodMonths)}` : "Not covered"}
+        value={plan.maternityCovered ? `${money(plan.maternityLimit)} after ${monthsLabel(plan.maternityWaitingPeriodMonths).toLowerCase()}` : "Not covered"}
       />
       <Row label="Existing conditions" value={plan.chronicCovered ? monthsLabel(plan.chronicWaitingPeriodMonths) : "Not covered"} />
-      <Row label="Network" value={plan.network} />
+      <Row label="Network" value={NETWORK_LABEL[plan.network] ?? plan.network} />
     </dl>
   );
 }

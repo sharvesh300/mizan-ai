@@ -3,6 +3,7 @@ import {
   CheckCircle2Icon,
   MessageSquareIcon,
   ShieldCheckIcon,
+  WrenchIcon,
   XCircleIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -24,6 +25,7 @@ import {
   applicationStatusTone,
   cohortLabel,
   dateLabel,
+  engineNote,
   flagSeverityLabel,
   flagSeverityTone,
   isWithAdvisor,
@@ -49,6 +51,7 @@ import {
   getDeclared,
   getPolicyForApplication,
   getQuotes,
+  getQuoteOutlays,
   getRecommendation,
   getRecommendationDecision,
   getReviewTasksForApplication,
@@ -195,13 +198,59 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
   );
 }
 
-/** One fact in the sidebar summary card — value capitalised the same way DeclaredDetails' own grid does. */
+/**
+ * One fact in the sidebar summary card.
+ *
+ * `first-letter:uppercase`, not `capitalize`: these values are sentences and
+ * phrases ("AED 10,000 after 12 months", "not covered"), and `capitalize`
+ * title-cases every word in them.
+ */
 function SummaryFact({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium capitalize">{value}</dd>
+      <dd className="font-medium first-letter:uppercase">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * The system's own note on a recommendation, framed by what it actually says.
+ *
+ * A concern is the reason a human is looking at this. A reassurance is the
+ * system reporting that it is sure — worth showing, because an advisor
+ * deciding how much attention to spend wants to read it, but never as a
+ * warning. A failure is a step that did not complete.
+ */
+function UncertaintyNote({ raw }: { raw: string | null }) {
+  const note = engineNote(raw);
+  if (!note) return null;
+
+  if (note.kind === "reassurance") {
+    return (
+      <div className="flex gap-2 rounded-lg border border-dashed px-3 py-2.5">
+        <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-success" />
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-medium">Nothing here needed a judgement call</p>
+          <p className="text-sm text-muted-foreground text-pretty">{note.text}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Alert>
+      {note.kind === "failure" ? <WrenchIcon className="text-warning" /> : <AlertTriangleIcon className="text-warning" />}
+      <AlertTitle>{note.kind === "failure" ? "This one did not finish on its own" : "Why this one needs you"}</AlertTitle>
+      <AlertDescription className="space-y-1.5">
+        <span className="block text-pretty">{note.text}</span>
+        {note.code ? (
+          <code className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground">
+            {note.code}
+          </code>
+        ) : null}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -363,11 +412,14 @@ async function AdvisorRecord({
   person: Person;
   owner: { fullName: string; email: string };
 }) {
-  const [assessment, reviews, decision, recoDecision] = await Promise.all([
+  const [assessment, reviews, decision, recoDecision, outlays] = await Promise.all([
     getAssessment(applicationId),
     getReviewTasksForApplication(applicationId, recommendation?.recommendation.id),
     getClassificationDecision(applicationId),
     getRecommendationDecision(applicationId),
+    // Broker-only: the modelled year cost behind each quote. Replaces the
+    // "Fit score 0.00" this panel used to print (see `PlanComparison`).
+    getQuoteOutlays(applicationId),
   ]);
 
   // The one thing on this page that is waiting on a person. A resolved task is
@@ -481,7 +533,7 @@ async function AdvisorRecord({
       </TabsContent>
 
       <TabsContent value="quotes" className="space-y-4 pt-4">
-        {quotes.length > 0 ? <PlanComparison quotes={quotes} showScores highlightPlanId={recommendation?.plan.id ?? null} /> : (
+        {quotes.length > 0 ? <PlanComparison quotes={quotes} outlays={outlays} highlightPlanId={recommendation?.plan.id ?? null} /> : (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               No quotes generated yet.
@@ -524,13 +576,14 @@ async function AdvisorRecord({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recommendation.recommendation.uncertaintyReason ? (
-                <Alert>
-                  <AlertTriangleIcon className="text-warning" />
-                  <AlertTitle>Why this one needs you</AlertTitle>
-                  <AlertDescription>{recommendation.recommendation.uncertaintyReason}</AlertDescription>
-                </Alert>
-              ) : null}
+              {/* Half of what this column holds is the system saying it found
+                  NOTHING troubling ("No uncertainty — plan_c is the only plan
+                  that fits"). Under a warning triangle headed "why this one
+                  needs you", that read as though something were wrong with a
+                  recommendation the system was in fact sure of. `engineNote`
+                  (lib/domain.ts) says which kind of note this is, and the
+                  alert follows it. */}
+              <UncertaintyNote raw={recommendation.recommendation.uncertaintyReason} />
 
               <div>
                 <p className="mb-1 text-xs text-muted-foreground">Broker reasoning</p>
@@ -691,7 +744,7 @@ function DeclaredDetails({
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="font-medium capitalize">{value}</dd>
+                <dd className="font-medium first-letter:uppercase">{value}</dd>
               </div>
             ))}
           </dl>
@@ -767,7 +820,7 @@ function DeclaredList({
               {/* Their own words, verbatim — never a normalised paraphrase. */}
               <span>{item.primary}</span>
               {item.secondary ? (
-                <Badge variant={item.warn ? "destructive" : "secondary"} className="capitalize">
+                <Badge variant={item.warn ? "destructive" : "secondary"} className="first-letter:uppercase">
                   {item.secondary}
                 </Badge>
               ) : null}
@@ -779,13 +832,28 @@ function DeclaredList({
   );
 }
 
+const SCENARIO_LABEL: Record<string, string> = {
+  LOW_OUTPATIENT: "a light year — 3 outpatient visits",
+  MEDIUM_OUTPATIENT: "an average year — 8 outpatient visits",
+  HIGH_OUTPATIENT: "a heavy year — 18 outpatient visits, chronic care",
+  EXPECTED_INPATIENT: "an average year with one admission",
+  CUSTOM_FROM_APPLICANT: "this applicant's own declared needs",
+};
+
 function PlanComparison({
   quotes,
-  showScores = false,
+  outlays = null,
   highlightPlanId = null,
 }: {
   quotes: Quotes;
-  showScores?: boolean;
+  /**
+   * What a modelled year on each plan would cost (`getQuoteOutlays`,
+   * lib/queries.ts). Broker-only, and the replacement for what this panel used
+   * to print as "Fit score": `quote.score` holds `1 / (1 + outlay)`, which
+   * renders as "0.00" on every plan at UAE premiums. Three identical zeroes in
+   * the panel an advisor compares plans in is worse than no number at all.
+   */
+  outlays?: Awaited<ReturnType<typeof getQuoteOutlays>>;
   /**
    * The live recommendation's plan — the one actually suggested (or, once
    * the applicant has picked, the one they picked; `pickPlan`,
@@ -805,10 +873,11 @@ function PlanComparison({
           Compared on what actually differs — what you pay, what you pay at the point of care, and how long you wait.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <div className="grid gap-4 lg:grid-cols-3">
           {quotes.map((quote) => {
             const highlighted = highlightPlanId ? quote.plan.id === highlightPlanId : quote.rank === 1;
+            const outlay = outlays?.byPlanId[quote.planId];
             return (
             <div
               key={quote.id}
@@ -834,7 +903,7 @@ function PlanComparison({
                   label="Maternity"
                   value={
                     quote.plan.maternityCovered
-                      ? `${money(quote.plan.maternityLimit)} after ${monthsLabel(quote.plan.maternityWaitingPeriodMonths)}`
+                      ? `${money(quote.plan.maternityLimit)} after ${monthsLabel(quote.plan.maternityWaitingPeriodMonths).toLowerCase()}`
                       : "Not covered"
                   }
                 />
@@ -846,25 +915,57 @@ function PlanComparison({
                       : "Not covered"
                   }
                 />
-                <Row label="Network" value={quote.plan.network} />
-                {showScores && quote.score != null ? (
-                  <Row label="Fit score" value={quote.score.toFixed(2)} />
+                <Row label="Network" value={NETWORK_LABEL[quote.plan.network] ?? quote.plan.network} />
+                {outlay != null ? (
+                  <>
+                    <Separator className="my-2" />
+                    <Row label="Likely cost for the year" value={money(outlay)} emphasis />
+                    <Row
+                      label="Of which out of pocket"
+                      value={money(Math.max(0, outlay - quote.annualPremium))}
+                    />
+                  </>
                 ) : null}
               </dl>
             </div>
             );
           })}
         </div>
+
+        {/* The modelling assumptions, next to the figures they produced —
+            every one of these numbers is a declared assumption, not a fact. */}
+        {outlays ? (
+          <p className="text-xs text-muted-foreground text-pretty">
+            Year cost is the premium plus the deductible and co-pay this applicant would meet under{" "}
+            {SCENARIO_LABEL[outlays.scenarioId] ?? outlays.scenarioId.toLowerCase().replace(/_/g, " ")}
+            {outlays.inpatientAdmissions > 0
+              ? `, including ${outlays.inpatientAdmissions} admission${outlays.inpatientAdmissions === 1 ? "" : "s"}`
+              : ""}
+            . Visits are costed at flat assumed rates ({outlays.constantsVersion}); premiums are as supplied, with no
+            age or risk loading.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+const NETWORK_LABEL: Record<string, string> = {
+  restricted: "Restricted",
+  standard: "Standard",
+  wide: "Wide",
+};
+
+/**
+ * `capitalize` used to sit on the value cell, which title-cased every word in
+ * it — "AED 10,000 after 12 months" rendered as "AED 10,000 After 12 Months".
+ * Values now arrive already written the way they should read.
+ */
+function Row({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium capitalize tabular-nums">{value}</dd>
+      <dt className={emphasis ? "text-foreground" : "text-muted-foreground"}>{label}</dt>
+      <dd className={`text-right font-medium tabular-nums${emphasis ? " text-foreground" : ""}`}>{value}</dd>
     </div>
   );
 }
