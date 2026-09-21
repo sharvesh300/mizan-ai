@@ -281,7 +281,12 @@ one starts, light theme and dark, at desktop and phone width.
   track *on top of* whatever children a caller passed, and every caller passes
   a track — so every progress bar in the product was drawn twice, one under the
   other. Visible in the applications table and the record's Progress card.
-- **Left in phase 4:** the pipeline board.
+- **Phase 4 — done.** `getPipeline`, `/pipeline`, and `FUNNEL_STAGES` shared
+  between the board and the dashboard funnel. The board is deliberately not
+  draggable — stages move when the work moves, and each of those moves carries
+  a recorded decision.
+- **Next:** phase 5 (record-page reformat — the weights panel, review cards,
+  rejection prominence) and phase 6 (the applicant chat launcher).
 
 ## 9. Explicitly not in this plan
 
