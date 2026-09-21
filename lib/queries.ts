@@ -777,6 +777,91 @@ export async function getPipeline() {
 
 export type PipelineStage = Awaited<ReturnType<typeof getPipeline>>[number];
 
+
+/**
+ * How the recommendation was weighted, and what moved it.
+ *
+ * The system already records this — `ai_decision.output` for the live
+ * `plan_recommendation` carries the base weights, the weights actually
+ * applied, and per criterion the applicant's own stated preferences that
+ * shifted it, quoted. None of it was rendered anywhere. It is the clearest
+ * evidence in the product that the reasoning layer is real rather than a
+ * sentence generated after the fact, so the broker view now shows it.
+ *
+ * Note the distinction kept below: `applied` is the weight that scored the
+ * plans (settled and renormalised, `settleWeights` in
+ * lib/recommendation/score.ts), while `derivedFrom.finalWeight` is the
+ * pre-settlement figure the shift produced. Presenting the second as the
+ * first would overstate how far a preference actually moved the answer.
+ */
+export type RecommendationWeights = {
+  round: number;
+  /** The model's confidence in the weight set itself, not in the plan. */
+  confidence: number | null;
+  fellBackTo: string | null;
+  criteria: {
+    criterionId: string;
+    base: number | null;
+    applied: number;
+    /** applied − base, when both are known. */
+    delta: number | null;
+    preferences: { direction: string; source: string; reason: string }[];
+  }[];
+};
+
+export async function getRecommendationWeights(applicationId: string): Promise<RecommendationWeights | null> {
+  const [row] = await db
+    .select({ output: aiDecision.output })
+    .from(aiDecision)
+    .where(and(eq(aiDecision.subjectId, applicationId), eq(aiDecision.decisionType, "plan_recommendation")))
+    .orderBy(desc(aiDecision.createdAt))
+    .limit(1);
+
+  const output = row?.output as
+    | {
+        round?: number;
+        fellBackTo?: string | null;
+        weights?: {
+          base?: { criterionId: string; weight: number }[];
+          dynamic?: { criterionId: string; weight: number }[];
+          confidence?: number;
+          derivedFrom?: {
+            criterionId: string;
+            baseWeight: number;
+            shift: number;
+            finalWeight: number;
+            statedPreferences?: { direction: string; source: string; reason: string }[];
+          }[];
+        };
+      }
+    | undefined;
+
+  const weights = output?.weights;
+  const applied = weights?.dynamic ?? weights?.base;
+  if (!applied || applied.length === 0) return null;
+
+  const baseOf = new Map((weights?.base ?? []).map((row) => [row.criterionId, row.weight]));
+  const derivedOf = new Map((weights?.derivedFrom ?? []).map((row) => [row.criterionId, row]));
+
+  return {
+    round: output?.round ?? 1,
+    confidence: weights?.confidence ?? null,
+    fellBackTo: output?.fellBackTo ?? null,
+    criteria: [...applied]
+      .sort((a, b) => b.weight - a.weight)
+      .map((row) => {
+        const base = baseOf.get(row.criterionId) ?? null;
+        return {
+          criterionId: row.criterionId,
+          base,
+          applied: row.weight,
+          delta: base == null ? null : Math.round((row.weight - base) * 100) / 100,
+          preferences: derivedOf.get(row.criterionId)?.statedPreferences ?? [],
+        };
+      }),
+  };
+}
+
 /** The live recommendation plus why the other two plans lost. */
 export async function getRecommendation(applicationId: string) {
   const [row] = await db
