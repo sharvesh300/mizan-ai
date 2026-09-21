@@ -46,20 +46,24 @@ export function UserSwitcher({ users, currentUserId }: { users: SwitcherUser[]; 
           <Button
             variant="ghost"
             disabled={pending}
-            className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
+            aria-label={current ? `Signed in as ${current.fullName}` : "Select user"}
+            /* min-w-0 on the trigger and the label column is what stops the
+               name running under the avatar while the sidebar animates between
+               its two widths; in icon mode only the avatar remains. */
+            className="h-auto w-full min-w-0 justify-start gap-2 px-2 py-1.5 text-left group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
-            <Avatar className="size-7 rounded-lg">
+            <Avatar className="size-7 shrink-0 rounded-lg">
               <AvatarFallback className="rounded-lg text-xs">
                 {current ? initials(current.fullName) : "?"}
               </AvatarFallback>
             </Avatar>
-            <span className="grid min-w-0 flex-1 leading-tight">
+            <span className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-medium">{current?.fullName ?? "Select user"}</span>
               <span className="truncate text-xs font-normal text-muted-foreground capitalize">
                 {current?.role}
               </span>
             </span>
-            <ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
+            <ChevronsUpDownIcon className="size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
           </Button>
         }
       />
