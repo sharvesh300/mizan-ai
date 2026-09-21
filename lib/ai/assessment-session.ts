@@ -21,21 +21,16 @@
 // queue item, is a record that lies about itself.
 
 import "server-only";
-import { and, eq, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   aiDecision,
   application,
-  applicationCondition,
-  applicationExpectedProvider,
-  applicationNeed,
-  applicationPriority,
   applicationStatusHistory,
   assessment,
   assessmentFlag,
   modelRun,
   networkAdmits,
-  person,
   plan,
   reviewTask,
   type ApplicationStatus,
@@ -45,10 +40,8 @@ import { runAssessment } from "@/lib/ai/graph";
 import type { AssessmentOutcome } from "@/lib/ai/graph/state";
 import { ASSESSMENT_PROMPT_VERSION } from "@/lib/ai/graph/nodes/assessment";
 import { MODEL_ID, PROVIDER } from "@/lib/ai/openrouter";
-import { admitsKey, deriveRecord, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
-
-/** Statuses that mean an application is no longer in play. */
-const TERMINAL: ApplicationStatus[] = ["withdrawn", "declined", "expired", "policy_issued"];
+import { admitsKey, type AssessmentContext, type AssessmentRecord, type Catalogue } from "@/lib/assessment";
+import { loadAssessmentRecord } from "@/lib/assessment/load";
 
 /**
  * `ai_decision.confidence` is a number and the assessment's is a band, so the
@@ -88,79 +81,18 @@ export async function loadCatalogue(): Promise<Catalogue> {
 }
 
 /**
- * Rebuild the record the rules read, from the rows intake wrote.
- *
- * Nothing is re-derived and nothing is asked for again — this is the same
- * declared data both views render, read once more for a different purpose.
+ * Everything the rules need for one application: the record (see
+ * `loadAssessmentRecord`, lib/assessment/load.ts — shared with the read layer)
+ * and the plan catalogue beside it.
  */
 export async function loadAssessmentInputs(applicationId: string): Promise<{
   record: AssessmentRecord;
   catalogue: Catalogue;
   context: AssessmentContext;
 } | null> {
-  const [row] = await db
-    .select({ application, person })
-    .from(application)
-    .innerJoin(person, eq(application.personId, person.id))
-    .where(eq(application.id, applicationId))
-    .limit(1);
-  if (!row) return null;
-
-  const [conditions, needs, priorities, providers, catalogue, siblings] = await Promise.all([
-    db.select().from(applicationCondition).where(eq(applicationCondition.applicationId, applicationId)),
-    db.select().from(applicationNeed).where(eq(applicationNeed.applicationId, applicationId)),
-    db.select().from(applicationPriority).where(eq(applicationPriority.applicationId, applicationId)),
-    db.select().from(applicationExpectedProvider).where(eq(applicationExpectedProvider.applicationId, applicationId)),
-    loadCatalogue(),
-    db
-      .select({ id: application.id })
-      .from(application)
-      .where(and(eq(application.personId, row.person.id), notInArray(application.status, TERMINAL))),
-  ]);
-
-  const record: AssessmentRecord = {
-    applicationId,
-    reference: row.application.reference,
-    age: row.application.age,
-    maritalStatus: row.application.maritalStatus,
-    smoker: row.application.smoker,
-    emirate: row.application.emirate,
-    budget: row.application.budget,
-    policyInception: row.application.policyInception,
-    treatmentOutsideUaeExpected: row.application.treatmentOutsideUaeExpected,
-    subjectRelationship: row.person.relationshipToOwner,
-    conditions: conditions.map((c) => ({
-      id: c.id,
-      rawText: c.rawText,
-      conditionCode: c.conditionCode,
-      stability: c.stability,
-    })),
-    needs: needs.map((n) => ({
-      id: n.id,
-      rawText: n.rawText,
-      benefitClass: n.benefitClass,
-      horizonMonths: n.horizonMonths,
-    })),
-    priorities: priorities.map((p) => ({ id: p.id, rawText: p.rawText, tag: p.tag })),
-    providers: providers.map((p) => ({ id: p.id, providerName: p.providerName, tier: p.tier })),
-  };
-
-  return {
-    // `deriveRecord` (lib/assessment/derive.ts) is applied HERE, at the one
-    // place a record is assembled from rows, and nowhere else: a declared
-    // condition implies a need to cover it, and a comma-joined priority is
-    // several priorities. Both are readings of what the applicant said, not
-    // edits to it — the rows keep their own words — so every record gets the
-    // same reading whether it was captured today or months ago.
-    record: deriveRecord(record),
-    catalogue,
-    context: {
-      // Explicit rather than read inside a rule, so replaying an assessment
-      // produces the flags it produced on the day, not today's.
-      today: new Date().toISOString().slice(0, 10),
-      openApplicationsForPerson: siblings.filter((s) => s.id !== applicationId).length,
-    },
-  };
+  const [loaded, catalogue] = await Promise.all([loadAssessmentRecord(applicationId), loadCatalogue()]);
+  if (!loaded) return null;
+  return { ...loaded, catalogue };
 }
 
 // ---------------------------------------------------------------------------
