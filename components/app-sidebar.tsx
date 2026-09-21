@@ -3,6 +3,7 @@
 import {
   FileTextIcon,
   InboxIcon,
+  LayersIcon,
   LayoutDashboardIcon,
   PlusIcon,
   ScaleIcon,
@@ -55,6 +56,7 @@ const NAV: Record<UserRole, NavGroup[]> = {
       items: [
         { href: "/", label: "Dashboard", icon: LayoutDashboardIcon },
         { href: "/queue", label: "Review queue", icon: InboxIcon },
+        { href: "/pipeline", label: "Pipeline", icon: LayersIcon },
       ],
     },
     {
