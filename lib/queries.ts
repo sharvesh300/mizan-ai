@@ -5,6 +5,11 @@
 
 import { and, asc, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
+import { cohortLabel } from "@/lib/domain";
+import { loadAssessmentRecord } from "@/lib/assessment/load";
+import type { PlanTerms } from "@/lib/assessment";
+import { estimateAnnualCost } from "@/lib/recommendation/cost";
+import { buildScenario, scenarioForRecord } from "@/lib/recommendation/scenarios";
 import {
   aiDecision,
   application,
@@ -195,6 +200,542 @@ export async function getQuotes(applicationId: string) {
     .innerJoin(plan, eq(quote.planId, plan.id))
     .where(eq(quote.applicationId, applicationId))
     .orderBy(asc(quote.rank));
+}
+
+/**
+ * What a realistic year on each plan would actually cost this applicant.
+ *
+ * This exists because the broker view used to print `quote.score` as a "fit
+ * score". That column holds `1 / (1 + totalOutlay)` (lib/recommendation/quote.ts)
+ * — for an 8,900 premium, 0.000112 — so three plans rendered as three
+ * "0.00"s in the one panel where an advisor compares them. The number that
+ * actually separates the three plans is the one the quoting pass ranked them
+ * on in the first place: premium plus what the applicant pays at the point of
+ * care under the scenario their own record implies.
+ *
+ * Every figure carries the scenario and constants version that produced it,
+ * because both are declared modelling assumptions, not facts — the same
+ * discipline the tool layer applies wherever this number is spoken.
+ */
+export async function getQuoteOutlays(applicationId: string): Promise<{
+  scenarioId: string;
+  constantsVersion: string;
+  outpatientVisits: number;
+  inpatientAdmissions: number;
+  byPlanId: Record<string, number>;
+} | null> {
+  const [loaded, catalogue] = await Promise.all([loadAssessmentRecord(applicationId), loadCatalogueTerms()]);
+  if (!loaded || catalogue.length === 0) return null;
+
+  const scenarioId = scenarioForRecord(loaded.record);
+  const scenario = buildScenario(scenarioId, loaded.record);
+
+  return {
+    scenarioId,
+    constantsVersion: scenario.constantsVersion,
+    outpatientVisits: scenario.basket.outpatientVisits,
+    inpatientAdmissions: scenario.basket.inpatientAdmissions,
+    byPlanId: Object.fromEntries(
+      catalogue.map((terms) => [terms.id, estimateAnnualCost(terms, scenario).total]),
+    ),
+  };
+}
+
+/**
+ * Plan terms in the shape the cost model reads. Deliberately not
+ * `loadCatalogue` from lib/ai/assessment-session — that module pulls the graph
+ * and the model client in with it, and a page reading a number has no reason
+ * to load either.
+ */
+async function loadCatalogueTerms(): Promise<PlanTerms[]> {
+  const rows = await db.select().from(plan);
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    annualPremium: row.annualPremium,
+    deductible: row.deductible,
+    outpatientCopayPct: row.outpatientCopayPct,
+    annualLimit: row.annualLimit,
+    network: row.network,
+    maternityCovered: row.maternityCovered,
+    maternityLimit: row.maternityLimit,
+    maternityWaitingPeriodMonths: row.maternityWaitingPeriodMonths,
+    chronicCovered: row.chronicCovered,
+    chronicWaitingPeriodMonths: row.chronicWaitingPeriodMonths,
+    dentalOptical: row.dentalOptical,
+  }));
+}
+
+
+// ---------------------------------------------------------------------------
+// Advisor dashboard
+// ---------------------------------------------------------------------------
+
+/** Stages the funnel counts, in the order an application passes through them. */
+const FUNNEL_STAGES = [
+  { key: "in_intake", label: "In intake", statuses: ["draft", "in_intake"] },
+  { key: "submitted", label: "Submitted", statuses: ["submitted"] },
+  { key: "assessed", label: "Assessed", statuses: ["assessed", "in_review"] },
+  { key: "recommended", label: "Recommended", statuses: ["recommended"] },
+  { key: "chosen", label: "Plan chosen", statuses: ["plan_selected"] },
+  { key: "issued", label: "Policy live", statuses: ["policy_issued"] },
+] as const;
+
+/** An application nobody has touched for this long is starving, whatever its priority score. */
+const STALE_DAYS = 7;
+
+const DAY_MS = 86_400_000;
+const daysSince = (value: Date | string | null | undefined): number | null => {
+  if (value == null) return null;
+  const then = typeof value === "string" ? new Date(value) : value;
+  return Math.floor((Date.now() - then.getTime()) / DAY_MS);
+};
+
+/**
+ * Everything the advisor dashboard renders, in one pass.
+ *
+ * The figures deliberately mix two questions a broker asks at the same time
+ * and used to have to answer on three different pages: how much work is
+ * waiting on me (queue depth, the oldest thing still waiting, what has
+ * stalled), and what is the book doing (applications per stage, premium
+ * quoted, premium live).
+ *
+ * Both money figures are ANNUALISED and INDICATIVE. Pipeline premium is the
+ * recommended plan's quoted premium on applications that have not converted —
+ * a quote, not a booking — and it is labelled that way wherever it renders.
+ */
+export async function getAdvisorDashboard() {
+  const [queue, applications, policies, decisions] = await Promise.all([
+    listQueue(),
+    listAllApplications(),
+    listAllPolicies(),
+    db
+      .select({
+        decision: reviewDecision,
+        actor: { id: appUser.id, fullName: appUser.fullName },
+        subjectType: reviewTask.subjectType,
+        subjectId: reviewTask.subjectId,
+      })
+      .from(reviewDecision)
+      .innerJoin(appUser, eq(reviewDecision.actorUserId, appUser.id))
+      .innerJoin(reviewTask, eq(reviewDecision.reviewTaskId, reviewTask.id))
+      .where(gt(reviewDecision.decidedAt, new Date(Date.now() - 7 * DAY_MS)))
+      .orderBy(desc(reviewDecision.decidedAt)),
+  ]);
+
+  const live = applications.filter(
+    (row) => !["policy_issued", "declined", "withdrawn", "expired"].includes(row.status),
+  );
+
+  // Premium quoted against applications still in play. Read off the LIVE
+  // recommendation's plan rather than the application row, so it follows an
+  // applicant who picked something other than what was suggested (`pickPlan`
+  // makes their choice the live row) and excludes superseded rounds.
+  const quoted = await db
+    .select({ applicationId: recommendation.applicationId, annualPremium: plan.annualPremium })
+    .from(recommendation)
+    .innerJoin(plan, eq(recommendation.planId, plan.id))
+    .innerJoin(application, eq(recommendation.applicationId, application.id))
+    .where(
+      and(
+        inArray(application.status, ["recommended", "plan_selected"]),
+        inArray(recommendation.status, ["pending_review", "approved", "edited", "overridden"]),
+      ),
+    );
+
+  const oldestWaiting = queue.reduce<number | null>((oldest, row) => {
+    const age = daysSince(row.task.createdAt);
+    return age == null ? oldest : oldest == null || age > oldest ? age : oldest;
+  }, null);
+
+  return {
+    queue,
+    counts: {
+      queueOpen: queue.length,
+      queueUnassigned: queue.filter((row) => !row.assignee).length,
+      oldestWaitingDays: oldestWaiting,
+      inFlight: live.length,
+      policiesLive: policies.filter(({ policy: row }) => row.status === "active").length,
+    },
+    money: {
+      pipelineAnnual: quoted.reduce((sum, row) => sum + row.annualPremium, 0),
+      pipelineCount: quoted.length,
+      liveAnnual: policies
+        .filter(({ policy: row }) => row.status === "active")
+        .reduce((sum, { policy: row }) => sum + row.annualPremium, 0),
+    },
+    funnel: FUNNEL_STAGES.map((stage) => ({
+      key: stage.key,
+      label: stage.label,
+      count: applications.filter((row) => (stage.statuses as readonly string[]).includes(row.status)).length,
+    })),
+    /**
+     * Where the system is unsure, across the whole open queue rather than one
+     * row at a time. A book with ten low-confidence records waiting is a
+     * different morning from one with ten the system is sure of, and the
+     * queue's own ordering cannot say that at a glance.
+     */
+    uncertainty: (["low", "medium", "high"] as const).map((level) => ({
+      level,
+      count: queue.filter((row) => row.subject?.confidence === level).length,
+    })),
+    /** Open applications nobody has moved in a week. Priority ordering starves these. */
+    stalled: live
+      .map((row) => ({ ...row, idleDays: daysSince(row.statusChangedAt) ?? 0 }))
+      .filter((row) => row.idleDays >= STALE_DAYS)
+      .sort((a, b) => b.idleDays - a.idleDays)
+      .slice(0, 5),
+    /**
+     * Who decided what this week — the record of human judgement, per the
+     * brief. "Approved · Karim · Tuesday" six times over says nothing without
+     * the subject, so each row carries the record it was about.
+     */
+    decisions: await withSubjects(decisions.slice(0, 6)),
+    decisionsThisWeek: decisions.length,
+  };
+}
+
+
+/**
+ * Name what a review decision was about.
+ *
+ * `review_task.subject_id` is polymorphic (SCHEMA.md §2.6), so an application
+ * id and a recommendation id are resolved separately and then merged back onto
+ * the rows in one pass — a join cannot do it, and a query per row would be six
+ * round trips for a panel.
+ */
+async function withSubjects<T extends { subjectType: string; subjectId: string }>(rows: T[]) {
+  if (rows.length === 0) return [] as (T & { subject: { reference: string; personName: string; applicationId: string } | null })[];
+
+  const applicationIds = rows.filter((row) => row.subjectType === "application").map((row) => row.subjectId);
+  const recommendationIds = rows.filter((row) => row.subjectType === "recommendation").map((row) => row.subjectId);
+
+  const [apps, recos] = await Promise.all([
+    applicationIds.length
+      ? db
+          .select({ id: application.id, reference: application.reference, personName: person.fullName })
+          .from(application)
+          .innerJoin(person, eq(application.personId, person.id))
+          .where(inArray(application.id, applicationIds))
+      : [],
+    recommendationIds.length
+      ? db
+          .select({
+            id: recommendation.id,
+            applicationId: application.id,
+            reference: application.reference,
+            personName: person.fullName,
+          })
+          .from(recommendation)
+          .innerJoin(application, eq(recommendation.applicationId, application.id))
+          .innerJoin(person, eq(application.personId, person.id))
+          .where(inArray(recommendation.id, recommendationIds))
+      : [],
+  ]);
+
+  const byApplication = new Map(apps.map((row) => [row.id, { ...row, applicationId: row.id }]));
+  const byRecommendation = new Map(recos.map((row) => [row.id, row]));
+
+  return rows.map((row) => ({
+    ...row,
+    subject:
+      row.subjectType === "application"
+        ? byApplication.get(row.subjectId) ?? null
+        : byRecommendation.get(row.subjectId) ?? null,
+  }));
+}
+
+
+// ---------------------------------------------------------------------------
+// Clients — the CRM spine
+// ---------------------------------------------------------------------------
+
+/**
+ * Everyone this brokerage covers or is trying to cover, one row per PERSON.
+ *
+ * The product had no such page. It has 13 people against 43 applications, and
+ * every screen was keyed on an application — so the fact that one applicant
+ * has six open applications existed only as a flag fired inside one of them
+ * (`duplicate_open_application`). A brokerage works relationships, not
+ * records; this is the list that says so.
+ */
+export async function listClients() {
+  const [people, applications, policies] = await Promise.all([
+    db
+      .select({ person, ownerName: appUser.fullName, ownerEmail: appUser.email })
+      .from(person)
+      .innerJoin(appUser, eq(person.ownerUserId, appUser.id)),
+    db
+      .select({
+        personId: application.personId,
+        id: application.id,
+        status: application.status,
+        statusChangedAt: application.statusChangedAt,
+        createdAt: application.createdAt,
+      })
+      .from(application),
+    db
+      .select({
+        personId: policy.personId,
+        status: policy.status,
+        annualPremium: policy.annualPremium,
+        inceptionDate: policy.inceptionDate,
+      })
+      .from(policy),
+  ]);
+
+  const CLOSED = ["policy_issued", "declined", "withdrawn", "expired"];
+
+  return people
+    .map(({ person: row, ownerName, ownerEmail }) => {
+      const mine = applications.filter((a) => a.personId === row.id);
+      const cover = policies.filter((p) => p.personId === row.id && p.status === "active");
+      const open = mine.filter((a) => !CLOSED.includes(a.status));
+      const lastMoved = mine.reduce<Date | null>((latest, a) => {
+        const at = a.statusChangedAt ?? a.createdAt;
+        return at && (!latest || at > latest) ? at : latest;
+      }, null);
+
+      return {
+        id: row.id,
+        fullName: row.fullName,
+        relationshipToOwner: row.relationshipToOwner,
+        emirate: row.emirate,
+        ownerName,
+        ownerEmail,
+        applications: mine.length,
+        openApplications: open.length,
+        policies: cover.length,
+        liveAnnual: cover.reduce((sum, p) => sum + p.annualPremium, 0),
+        lastMoved,
+        /**
+         * One word for where this relationship stands, chosen most-committed
+         * first: cover in force outranks an open application, which outranks
+         * a closed history.
+         */
+        state: (cover.length > 0
+          ? "covered"
+          : open.length > 0
+            ? "in_progress"
+            : mine.length > 0
+              ? "closed"
+              : "no_activity") as "covered" | "in_progress" | "closed" | "no_activity",
+      };
+    })
+    .sort((a, b) => (b.lastMoved?.getTime() ?? 0) - (a.lastMoved?.getTime() ?? 0));
+}
+
+export type ClientRow = Awaited<ReturnType<typeof listClients>>[number];
+
+/** One person's header facts, their cover, applications and conversations. */
+export async function getClient(personId: string) {
+  const [row] = await db
+    .select({ person, ownerName: appUser.fullName, ownerEmail: appUser.email, ownerPhone: appUser.phone })
+    .from(person)
+    .innerJoin(appUser, eq(person.ownerUserId, appUser.id))
+    .where(eq(person.id, personId))
+    .limit(1);
+  if (!row) return null;
+
+  const [applications, policies, conversations] = await Promise.all([
+    db
+      .select({
+        id: application.id,
+        reference: application.reference,
+        status: application.status,
+        intakeSource: application.intakeSource,
+        age: application.age,
+        budget: application.budget,
+        createdAt: application.createdAt,
+        statusChangedAt: application.statusChangedAt,
+        cohort: assessment.cohort,
+        confidence: assessment.confidence,
+      })
+      .from(application)
+      .leftJoin(assessment, eq(assessment.applicationId, application.id))
+      .where(eq(application.personId, personId))
+      .orderBy(desc(application.statusChangedAt), desc(assessment.createdAt)),
+    db
+      .select({ policy, plan, ledger: benefitLedger })
+      .from(policy)
+      .innerJoin(plan, eq(policy.planId, plan.id))
+      .leftJoin(benefitLedger, eq(benefitLedger.policyId, policy.id))
+      .where(eq(policy.personId, personId))
+      .orderBy(desc(policy.createdAt)),
+    db
+      .select({
+        id: conversation.id,
+        status: conversation.status,
+        channel: conversation.channel,
+        startedAt: conversation.startedAt,
+        applicationId: conversation.applicationId,
+      })
+      .from(conversation)
+      .innerJoin(application, eq(conversation.applicationId, application.id))
+      .where(eq(application.personId, personId))
+      .orderBy(desc(conversation.startedAt)),
+  ]);
+
+  // The application join above can return a row per assessment; keep the newest.
+  const seen = new Set<string>();
+  const unique = applications.filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
+
+  return { ...row, applications: unique, policies, conversations };
+}
+
+/** One thing that happened to a client, normalised across seven tables. */
+export type TimelineEntry = {
+  at: Date;
+  kind: "application" | "assessment" | "flag" | "recommendation" | "decision" | "policy" | "servicing" | "reassessment";
+  title: string;
+  detail: string | null;
+  /** Who did it. `null` means the system. */
+  actor: string | null;
+  href: string | null;
+  /** A rule code or reason code, when the row carried one. */
+  code?: string | null;
+};
+
+/**
+ * Everything that has happened to one client, in one list.
+ *
+ * Assembled rather than joined: these rows live in seven tables with no common
+ * shape, and the question a broker asks before a call — "what has actually
+ * happened with this person" — cannot be answered from any one of them. Each
+ * source contributes `{ at, kind, title, detail, actor }` and the merge sorts
+ * once, newest first.
+ */
+export async function getClientTimeline(personId: string): Promise<TimelineEntry[]> {
+  const applications = await db
+    .select({ id: application.id, reference: application.reference })
+    .from(application)
+    .where(eq(application.personId, personId));
+  if (applications.length === 0) return [];
+
+  const ids = applications.map((a) => a.id);
+  const refOf = new Map(applications.map((a) => [a.id, a.reference]));
+
+  const [history, assessments, recommendations, decisions, policies] = await Promise.all([
+    db
+      .select({ row: applicationStatusHistory, actor: appUser.fullName })
+      .from(applicationStatusHistory)
+      .leftJoin(appUser, eq(applicationStatusHistory.changedByUserId, appUser.id))
+      .where(inArray(applicationStatusHistory.applicationId, ids)),
+    db.select().from(assessment).where(inArray(assessment.applicationId, ids)),
+    db
+      .select({ row: recommendation, planName: plan.name })
+      .from(recommendation)
+      .innerJoin(plan, eq(recommendation.planId, plan.id))
+      .where(inArray(recommendation.applicationId, ids)),
+    db
+      .select({ row: reviewDecision, task: reviewTask, actor: appUser.fullName })
+      .from(reviewDecision)
+      .innerJoin(reviewTask, eq(reviewDecision.reviewTaskId, reviewTask.id))
+      .innerJoin(appUser, eq(reviewDecision.actorUserId, appUser.id))
+      .where(inArray(reviewTask.subjectId, ids)),
+    db
+      .select({ row: policy, planName: plan.name })
+      .from(policy)
+      .innerJoin(plan, eq(policy.planId, plan.id))
+      .where(eq(policy.personId, personId)),
+  ]);
+
+  const flags = assessments.length
+    ? await db
+        .select()
+        .from(assessmentFlag)
+        .where(inArray(assessmentFlag.assessmentId, assessments.map((a) => a.id)))
+    : [];
+
+  const events = policies.length
+    ? await db
+        .select()
+        .from(servicingEvent)
+        .where(inArray(servicingEvent.policyId, policies.map((p) => p.row.id)))
+    : [];
+
+  const reassessments = policies.length
+    ? await db
+        .select()
+        .from(planFitReassessment)
+        .where(inArray(planFitReassessment.policyId, policies.map((p) => p.row.id)))
+    : [];
+
+  const entries: TimelineEntry[] = [
+    ...history.map(({ row, actor }) => ({
+      at: row.changedAt,
+      kind: "application" as const,
+      title: `${refOf.get(row.applicationId) ?? "Application"} → ${row.toStatus.replace(/_/g, " ")}`,
+      detail: row.reason,
+      actor: row.changedBy === "system" ? null : actor,
+      href: `/applications/${row.applicationId}`,
+    })),
+    ...assessments.map((row) => ({
+      at: row.createdAt,
+      kind: "assessment" as const,
+      title: `Classified as ${cohortLabel(row.cohort)}`,
+      detail: `${row.confidence} confidence`,
+      actor: null,
+      href: `/applications/${row.applicationId}`,
+    })),
+    ...flags.map((row) => {
+      const parent = assessments.find((a) => a.id === row.assessmentId);
+      return {
+        at: parent?.createdAt ?? new Date(0),
+        kind: "flag" as const,
+        title: `Flag fired: ${row.ruleCode}`,
+        detail: row.reason,
+        actor: null,
+        href: parent ? `/applications/${parent.applicationId}` : null,
+        code: row.ruleCode,
+      };
+    }),
+    ...recommendations.map(({ row, planName }) => ({
+      at: row.createdAt,
+      kind: "recommendation" as const,
+      title: `Recommended ${planName}`,
+      detail: row.uncertaintyReason,
+      actor: row.createdBy === "system" ? null : "advisor",
+      href: `/applications/${row.applicationId}`,
+    })),
+    ...decisions.map(({ row, task, actor }) => ({
+      at: row.decidedAt,
+      kind: "decision" as const,
+      title: `${row.action.replace(/_/g, " ")} on ${task.subjectType.replace(/_/g, " ")}`,
+      detail: row.notes,
+      actor,
+      href: `/applications/${task.subjectId}`,
+    })),
+    ...policies.map(({ row, planName }) => ({
+      at: row.createdAt,
+      kind: "policy" as const,
+      title: `Policy issued — ${planName}`,
+      detail: `${row.policyNumber}, cover from ${row.inceptionDate}`,
+      actor: null,
+      href: `/policies/${row.id}`,
+    })),
+    ...events.map((row) => ({
+      at: row.createdAt,
+      kind: "servicing" as const,
+      title: `${row.kind.replace(/_/g, " ")}${row.outcome ? ` — ${row.outcome.replace(/_/g, " ")}` : ""}`,
+      detail: row.description,
+      actor: null,
+      href: `/policies/${row.policyId}`,
+      code: row.reasonCode,
+    })),
+    ...reassessments.map((row) => ({
+      at: row.createdAt,
+      kind: "reassessment" as const,
+      title: `Fit reassessed — ${row.verdict.replace(/_/g, " ")}`,
+      detail: row.brokerReasoning,
+      actor: null,
+      href: `/policies/${row.policyId}`,
+    })),
+  ];
+
+  return entries
+    .filter((entry) => entry.at != null)
+    .sort((a, b) => b.at.getTime() - a.at.getTime());
 }
 
 /** The live recommendation plus why the other two plans lost. */
