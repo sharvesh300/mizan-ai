@@ -293,8 +293,14 @@ one starts, light theme and dark, at desktop and phone width.
   the drawer render one component; `ChatLauncher` and `ChatDrawer`; the drawer
   is an intercepted route under `app/@chat`, which is what gives it a real URL,
   back-to-close, a full-page fallback on reload, and working revalidation.
-- **Next:** phase 7, the polish pass — loading states, a11y, and a sweep of
-  both themes at every width.
+- **Phase 7 — done.** Loading skeletons shaped like the pages they stand in
+  for; an error boundary and a 404 that stay inside the shell; an a11y pass
+  driven by the accessibility tree (headings on panels, names on every progress
+  bar and stat tile, `aria-current` on the journey); per-page browser titles;
+  and one real overflow fixed — the four-tab strips broke 375px by 65px.
+
+All seven phases are complete. What remains from §9 is unchanged: the step-5
+servicing surfaces and their adjudication engine, which is a separate decision.
 
 ## 9. Explicitly not in this plan
 
