@@ -22,7 +22,7 @@ export function StatTile({
   label: string;
   value: React.ReactNode;
   /** The sub-line: what the number is of, or what it means. */
-  hint?: React.ReactNode;
+  hint?: string;
   /** Colours the dot only — the number itself stays foreground-coloured so a row of tiles is readable. */
   tone?: Tone;
   href: string;
@@ -31,6 +31,12 @@ export function StatTile({
   return (
     <Link
       href={href}
+      /* Named explicitly rather than left to content concatenation: a tile
+         reads "Open decisions 35 34 unassigned" otherwise, which is three
+         fragments in the order they happen to be laid out. */
+      aria-label={[label, typeof value === "string" || typeof value === "number" ? String(value) : null, hint]
+        .filter(Boolean)
+        .join(", ")}
       className={cn(
         "group flex flex-col justify-between gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
         className,

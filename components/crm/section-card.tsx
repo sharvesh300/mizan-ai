@@ -35,7 +35,11 @@ export function SectionCard({
     <Card className={className}>
       <CardHeader className={action ? "grid-cols-[1fr_auto] items-start gap-3" : undefined}>
         <div className="min-w-0 space-y-1">
-          <CardTitle>{title}</CardTitle>
+          {/* A real heading, not a styled div: a page of panels whose titles
+              are `generic` gives a screen-reader user no way to move between
+              them. CardTitle keeps the typography; the h2 carries the
+              semantics. */}
+          <CardTitle as="h2">{title}</CardTitle>
           {description ? <CardDescription className="text-pretty">{description}</CardDescription> : null}
         </div>
         {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}

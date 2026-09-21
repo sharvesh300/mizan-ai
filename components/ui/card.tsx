@@ -32,9 +32,21 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({
+  className,
+  as: Tag = "div",
+  ...props
+}: React.ComponentProps<"div"> & {
+  /**
+   * The element to render. Defaults to a div for backwards compatibility, but
+   * a card that titles a section of a page should pass a heading — a page
+   * whose panel titles are all `generic` gives a screen-reader user no way to
+   * move between them.
+   */
+  as?: "div" | "h2" | "h3"
+}) {
   return (
-    <div
+    <Tag
       data-slot="card-title"
       className={cn(
         "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

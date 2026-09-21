@@ -60,7 +60,7 @@ export function ApplicationJourney({
           Step {current + 1} of {APPLICATION_JOURNEY.length}
         </p>
       </div>
-      <Progress value={journeyProgress(status)}>
+      <Progress value={journeyProgress(status)} aria-label={`Application progress: ${applicationStatusLabel[status]}, step ${current + 1} of ${APPLICATION_JOURNEY.length}`}>
         <ProgressTrack>
           <ProgressIndicator />
         </ProgressTrack>
@@ -82,7 +82,7 @@ export function ApplicationJourney({
             const active = index === current;
             const last = index === APPLICATION_JOURNEY.length - 1;
             return (
-              <li key={step} className="relative flex gap-3 pb-6 last:pb-0">
+              <li key={step} aria-current={active ? "step" : undefined} className="relative flex gap-3 pb-6 last:pb-0">
                 {!last ? (
                   <span
                     aria-hidden
@@ -119,7 +119,7 @@ export function ApplicationJourney({
           const done = index < current;
           const active = index === current;
           return (
-            <li key={step} className="flex items-center gap-2">
+            <li key={step} aria-current={active ? "step" : undefined} className="flex items-center gap-2">
               <span
                 className={cn(
                   "flex size-4 shrink-0 items-center justify-center rounded-full text-[0.6rem] font-semibold",

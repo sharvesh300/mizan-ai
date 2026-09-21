@@ -31,7 +31,7 @@ export function UtilizationBar({
           {cap != null ? <span className="text-muted-foreground/70"> of {money(cap)}</span> : null}
         </span>
       </div>
-      <Progress value={pct}>
+      <Progress value={pct} aria-label={cap != null ? `${label}: ${money(used)} of ${money(cap)} used` : `${label}: ${money(used)} used`}>
         <ProgressTrack>
           <ProgressIndicator
             className={cn(

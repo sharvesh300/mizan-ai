@@ -41,7 +41,6 @@ export function ChatLauncher({ attention = false }: { attention?: boolean }) {
           <span className="relative inline-flex size-3.5 rounded-full bg-warning ring-2 ring-background" />
         </span>
       ) : null}
-      <span className="sr-only">Open your chat</span>
     </Link>
   );
 }
