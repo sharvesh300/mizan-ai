@@ -285,8 +285,16 @@ one starts, light theme and dark, at desktop and phone width.
   between the board and the dashboard funnel. The board is deliberately not
   draggable — stages move when the work moves, and each of those moves carries
   a recorded decision.
-- **Next:** phase 5 (record-page reformat — the weights panel, review cards,
-  rejection prominence) and phase 6 (the applicant chat launcher).
+- **Phase 5 — done.** `getRecommendationWeights` and
+  `components/crm/criterion-bars.tsx`; rejections lifted out of the
+  recommendation card into a panel beside the weights; review entries
+  restructured into decision cards.
+- **Phase 6 — done.** `ChatThread` extracted from the chat page so the page and
+  the drawer render one component; `ChatLauncher` and `ChatDrawer`; the drawer
+  is an intercepted route under `app/@chat`, which is what gives it a real URL,
+  back-to-close, a full-page fallback on reload, and working revalidation.
+- **Next:** phase 7, the polish pass — loading states, a11y, and a sweep of
+  both themes at every width.
 
 ## 9. Explicitly not in this plan
 
