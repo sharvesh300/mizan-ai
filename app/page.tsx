@@ -1,27 +1,27 @@
 import { ArrowRightIcon, FileTextIcon, InboxIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
 import { ApplicationJourney } from "@/components/application-journey";
+import { Funnel } from "@/components/crm/funnel";
+import { QueueRow } from "@/components/crm/queue-row";
+import { SectionCard, SectionLink } from "@/components/crm/section-card";
+import { StatRow, StatTile } from "@/components/crm/stat-tile";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import {
   applicationStatusLabel,
   applicationStatusTone,
-  cohortLabel,
   dateLabel,
   isWithAdvisor,
   money,
-  reviewStatusLabel,
-  reviewStatusTone,
+  reviewActionLabel,
+  reviewActionTone,
 } from "@/lib/domain";
 import {
-  listAllApplications,
-  listAllPolicies,
+  getAdvisorDashboard,
   listApplicationsForUser,
-  listOpenReviewTasks,
   listPoliciesForUser,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
@@ -29,7 +29,11 @@ import { getCurrentUser } from "@/lib/session";
 export default async function Home() {
   const user = await getCurrentUser();
   if (!user) return null;
-  return user.role === "advisor" ? <AdvisorOverview /> : <ApplicantOverview userId={user.id} name={user.fullName} />;
+  return user.role === "advisor" ? (
+    <AdvisorOverview name={user.fullName} />
+  ) : (
+    <ApplicantOverview userId={user.id} name={user.fullName} />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -181,56 +185,66 @@ function StartHere() {
 
 // ---------------------------------------------------------------------------
 
-async function AdvisorOverview() {
-  const [tasks, applications, policies] = await Promise.all([
-    listOpenReviewTasks(),
-    listAllApplications(),
-    listAllPolicies(),
-  ]);
+/**
+ * The advisor's morning read.
+ *
+ * It replaces a page that was two more lists on top of a product already made
+ * of lists. Four bands, densest first: what is waiting on me, the top of the
+ * queue itself, what the book is doing, and what has been decided (plus what
+ * has stalled — priority ordering starves an old low-priority record, and the
+ * queue cannot show that about itself).
+ */
+async function AdvisorOverview({ name }: { name: string }) {
+  const { queue, counts, money: sums, funnel, uncertainty, stalled, decisions, decisionsThisWeek } =
+    await getAdvisorDashboard();
 
-  const awaiting = applications.filter(
-    (a) => a.status !== "policy_issued" && a.status !== "declined" && a.status !== "withdrawn",
-  );
-
-  const stats = [
-    { label: "Needs a decision", value: tasks.length, href: "/queue", icon: InboxIcon, tone: tasks.length > 0 ? "warning" : "success" },
-    { label: "Applications in flight", value: awaiting.length, href: "/applications", icon: FileTextIcon, tone: "info" },
-    { label: "Active policies", value: policies.length, href: "/policies", icon: ShieldCheckIcon, tone: "brand" },
-  ] as const;
+  const top = queue.slice(0, 5);
+  const lowConfidence = uncertainty.find((row) => row.level === "low")?.count ?? 0;
 
   return (
     <>
       <PageHeader
-        title="Advisor console"
-        description="What needs a human decision right now, and what the system is handling on its own."
+        title={`Good morning, ${name.split(" ")[0]}`}
+        description="What needs a human decision right now, what the system is handling on its own, and where the book has got to."
       />
       <PageBody className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {stats.map((stat) => (
-            <Link key={stat.label} href={stat.href} className="group">
-              <Card className="transition-colors group-hover:ring-brand/40">
-                <CardContent className="flex items-center gap-3">
-                  <span className="flex size-9 items-center justify-center rounded-lg bg-muted">
-                    <stat.icon className="size-4 text-muted-foreground" />
-                  </span>
-                  <div>
-                    <p className="text-2xl font-semibold tabular-nums leading-none">{stat.value}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
+        <StatRow>
+          <StatTile
+            label="Open decisions"
+            value={counts.queueOpen}
+            hint={counts.queueUnassigned > 0 ? `${counts.queueUnassigned} unassigned` : "all assigned"}
+            tone={counts.queueOpen > 0 ? "warning" : "success"}
+            href="/queue"
+          />
+          <StatTile
+            label="Longest wait"
+            value={counts.oldestWaitingDays == null ? "—" : `${counts.oldestWaitingDays}d`}
+            hint="oldest item still open"
+            tone={counts.oldestWaitingDays != null && counts.oldestWaitingDays > 7 ? "danger" : "neutral"}
+            href="/queue"
+          />
+          <StatTile label="In flight" value={counts.inFlight} hint="applications not yet closed" tone="info" href="/applications" />
+          <StatTile label="Policies live" value={counts.policiesLive} hint="active cover" tone="brand" href="/policies" />
+          <StatTile
+            label="Premium live"
+            value={money(sums.liveAnnual)}
+            hint={`${money(sums.pipelineAnnual)} more quoted`}
+            href="/policies"
+          />
+        </StatRow>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Top of the queue</h2>
-            <Button
-            nativeButton={false} variant="ghost" size="sm" render={<Link href="/queue">See all<ArrowRightIcon /></Link>} />
-          </div>
-          {tasks.length === 0 ? (
-            <Empty className="rounded-xl border border-dashed">
+        <SectionCard
+          flush
+          title="Needs you now"
+          description={
+            counts.queueOpen > top.length
+              ? `The top ${top.length} of ${counts.queueOpen}, in queue order.`
+              : "In queue order — blocked records first, then close calls, then everything else."
+          }
+          action={<SectionLink href="/queue">Open the queue</SectionLink>}
+        >
+          {top.length === 0 ? (
+            <Empty className="border-t border-dashed">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <InboxIcon />
@@ -240,65 +254,123 @@ async function AdvisorOverview() {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="rounded-xl border divide-y">
-              {tasks.slice(0, 5).map(({ task, assignee }) => (
-                <Item key={task.id} className="px-4 py-3">
-                  <ItemContent>
-                    <ItemTitle className="flex flex-wrap items-center gap-2">
-                      {task.reason}
-                      <StatusBadge tone={reviewStatusTone[task.status]}>
-                        {reviewStatusLabel[task.status]}
-                      </StatusBadge>
-                    </ItemTitle>
-                    <ItemDescription>
-                      {task.subjectType.replace(/_/g, " ")} · priority {task.priorityScore}
-                      {assignee?.fullName ? ` · ${assignee.fullName}` : " · unassigned"}
-                    </ItemDescription>
-                  </ItemContent>
-                  <ItemActions>
-                    <Button
-            nativeButton={false}
-                      size="sm"
-                      variant="outline"
-                      render={<Link href={`/queue#${task.id}`}>Review</Link>}
-                    />
-                  </ItemActions>
-                </Item>
+            <ul className="divide-y border-t">
+              {top.map((row) => (
+                <QueueRow key={row.task.id} row={row} compact />
               ))}
-            </div>
+            </ul>
           )}
-        </section>
+        </SectionCard>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Recent applications</h2>
-          <div className="rounded-xl border divide-y">
-            {applications.slice(0, 6).map((app) => (
-              <Item key={app.id} className="px-4 py-3">
-                <ItemContent>
-                  <ItemTitle className="flex flex-wrap items-center gap-2">
-                    {app.reference}
-                    <StatusBadge tone={applicationStatusTone[app.status]}>
-                      {applicationStatusLabel[app.status]}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SectionCard
+            title="Where the book is"
+            description="Every application by stage. Bars are scaled to the busiest stage, so a pile-up reads as one."
+            action={<SectionLink href="/applications">All applications</SectionLink>}
+          >
+            <Funnel stages={funnel} hrefFor={() => "/applications"} />
+          </SectionCard>
+
+          <SectionCard
+            title="Where the uncertainty is"
+            description="How sure the system was about the records now waiting on you. Broker-only — this vocabulary never reaches an applicant."
+          >
+            <ul className="space-y-3">
+              {uncertainty.map((row) => (
+                <li key={row.level} className="flex items-baseline gap-3">
+                  <StatusBadge tone={CONFIDENCE_TONE[row.level]} className="shrink-0">
+                    {row.level} confidence
+                  </StatusBadge>
+                  <span className="w-6 shrink-0 text-sm font-medium tabular-nums">{row.count}</span>
+                  <span className="min-w-0 flex-1 text-xs text-muted-foreground text-pretty">
+                    {CONFIDENCE_HINT[row.level]}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs text-muted-foreground text-pretty">
+              {lowConfidence > 0
+                ? `${lowConfidence} of the ${counts.queueOpen} open item${counts.queueOpen === 1 ? "" : "s"} ${lowConfidence === 1 ? "is" : "are"} a genuine judgement call rather than a rubber stamp.`
+                : "Nothing open is a genuine close call — the queue is rules and sign-offs today."}
+            </p>
+          </SectionCard>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SectionCard
+            title="Decided this week"
+            description={
+              decisionsThisWeek === 0
+                ? "No decisions recorded in the last seven days."
+                : `${decisionsThisWeek} decision${decisionsThisWeek === 1 ? "" : "s"} recorded, newest first. Every action carries who took it.`
+            }
+          >
+            {decisions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {decisions.map(({ decision, actor, subject }) => (
+                  <li key={decision.id} className="flex items-start gap-2.5 text-sm">
+                    <StatusBadge tone={reviewActionTone[decision.action]} className="mt-0.5 shrink-0">
+                      {reviewActionLabel[decision.action]}
                     </StatusBadge>
-                  </ItemTitle>
-                  <ItemDescription>
-                    {app.personName} · age {app.age}
-                    {app.cohort ? ` · ${cohortLabel(app.cohort)}` : ""}
-                  </ItemDescription>
-                </ItemContent>
-                <ItemActions>
-                  <Button
-            nativeButton={false}
-                    size="sm"
-                    variant="ghost"
-                    render={<Link href={`/applications/${app.id}`}>Open<ArrowRightIcon /></Link>}
-                  />
-                </ItemActions>
-              </Item>
-            ))}
-          </div>
-        </section>
+                    <div className="min-w-0 flex-1">
+                      {subject ? (
+                        <Link href={`/applications/${subject.applicationId}`} className="block truncate hover:underline">
+                          {subject.personName}
+                          <span className="text-muted-foreground"> · {subject.reference}</span>
+                        </Link>
+                      ) : (
+                        <p className="truncate text-muted-foreground">record no longer on file</p>
+                      )}
+                      <p className="truncate text-xs text-muted-foreground">
+                        {actor.fullName} · {dateLabel(decision.decidedAt)}
+                        {decision.notes ? ` · ${decision.notes}` : ""}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Not moved in a week"
+            description="Open applications the queue's priority ordering will keep pushing down. Nothing here is urgent; that is the problem."
+          >
+            {stalled.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Everything open has moved in the last seven days.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {stalled.map((row) => (
+                  <li key={row.id}>
+                    <Link
+                      href={`/applications/${row.id}`}
+                      className="flex items-baseline justify-between gap-3 rounded-md text-sm hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {row.personName}
+                        <span className="text-muted-foreground"> · {row.reference}</span>
+                      </span>
+                      <StatusBadge tone={applicationStatusTone[row.status]}>
+                        {applicationStatusLabel[row.status]}
+                      </StatusBadge>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{row.idleDays}d</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SectionCard>
+        </div>
       </PageBody>
     </>
   );
 }
+
+const CONFIDENCE_TONE = { low: "warning", medium: "info", high: "success" } as const;
+const CONFIDENCE_HINT = {
+  low: "genuinely arguable — read the record",
+  medium: "the system has a view, capped by a flag",
+  high: "settled; you are confirming, not deciding",
+} as const;
