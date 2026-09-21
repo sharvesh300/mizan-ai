@@ -16,10 +16,16 @@ function Progress({
       className={cn("flex flex-wrap gap-3", className)}
       {...props}
     >
-      {children}
-      <ProgressTrack>
-        <ProgressIndicator />
-      </ProgressTrack>
+      {/* The default track renders only when nothing was passed in. It used to
+          render ALWAYS, on top of whatever children a caller supplied — and
+          every caller supplies a track, because that is how the primitive is
+          composed — so each bar in the product was silently drawn twice, one
+          under the other. Passing children now means you own the track. */}
+      {children ?? (
+        <ProgressTrack>
+          <ProgressIndicator />
+        </ProgressTrack>
+      )}
     </ProgressPrimitive.Root>
   )
 }
