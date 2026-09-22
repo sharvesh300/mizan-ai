@@ -1,0 +1,42 @@
+[
+  {
+    "applicant": "P1",
+    "policyRef": "POL-P1",
+    "cohort": "standard_young_healthy",
+    "plan": "Essential",
+    "eventCount": 2,
+    "reassessmentCount": 1
+  },
+  {
+    "applicant": "P2",
+    "policyRef": "POL-P2",
+    "cohort": "maternity_planning",
+    "plan": "Comprehensive",
+    "eventCount": 3,
+    "reassessmentCount": 0
+  },
+  {
+    "applicant": "P3",
+    "policyRef": "POL-P3",
+    "cohort": "chronic_managed_mature",
+    "plan": "Balanced",
+    "eventCount": 3,
+    "reassessmentCount": 0
+  },
+  {
+    "applicant": "P4",
+    "policyRef": "POL-P4",
+    "cohort": "standard_mid_career",
+    "plan": "Balanced",
+    "eventCount": 3,
+    "reassessmentCount": 0
+  },
+  {
+    "applicant": "P5",
+    "policyRef": "POL-P5",
+    "cohort": "chronic_complex_senior",
+    "plan": "Comprehensive",
+    "eventCount": 2,
+    "reassessmentCount": 0
+  }
+]

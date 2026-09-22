@@ -1,0 +1,93 @@
+{
+  "applicant": "P1",
+  "applicationRef": "APP-P1",
+  "policyRef": "POL-P1",
+  "personName": "Aisha Rahman",
+  "cohort_and_flags": {
+    "cohort": "standard_young_healthy",
+    "confidence": "high",
+    "flags": []
+  },
+  "quotes": [
+    {
+      "plan": "Essential",
+      "annualPremium": 4200,
+      "eligible": true,
+      "rank": 1
+    },
+    {
+      "plan": "Balanced",
+      "annualPremium": 8900,
+      "eligible": true,
+      "rank": 2
+    },
+    {
+      "plan": "Comprehensive",
+      "annualPremium": 16500,
+      "eligible": true,
+      "rank": 3
+    }
+  ],
+  "recommendation": {
+    "plan": "Essential",
+    "brokerReasoning": "Cohort standard_young_healthy, no declared conditions, no near-term needs, budget band low (ceiling 5,000). Essential at 4,200 is the only plan inside the band and nothing in the record needs what Balanced adds. The 1,500 deductible and 30% co-pay are live exposure but sit against an expected-utilisation profile of near zero. Straightforward placement — no reviewer judgment required beyond a sign-off.",
+    "memberReasoning": "Essential fits what you told us: you want the lowest premium and you have no conditions or planned treatment. It costs 4,200 a year. Two things to know — you pay the first 1,500 of any treatment yourself each year, and after that you pay 30% of outpatient bills. Maternity and pre-existing conditions are not covered on this plan.",
+    "rejections": [
+      {
+        "plan": "Balanced",
+        "reason": "Covers maternity and chronic pre-existing, neither of which is in this record. 4,700 a year more for benefits that would go unused."
+      },
+      {
+        "plan": "Comprehensive",
+        "reason": "Four times the premium for depth this applicant has no stated need for. Outside the low budget band by two bands."
+      }
+    ]
+  },
+  "servicing_events": [
+    {
+      "ref": "CLM-1",
+      "kind": "claim",
+      "policyMonth": 5,
+      "billedAmount": 3200,
+      "outcome": "covered",
+      "plan_pays": 1190,
+      "member_pays": 2010,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 1500,
+        "annualPaid": 1190,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "CLM-6",
+      "kind": "claim",
+      "policyMonth": 8,
+      "billedAmount": 1800,
+      "outcome": "covered",
+      "plan_pays": 1260,
+      "member_pays": 540,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 1500,
+        "annualPaid": 2450,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    }
+  ],
+  "plan_fit_reassessments": [
+    {
+      "verdict": "confirm",
+      "recommendedPlanId": null,
+      "brokerReasoning": "Two general outpatient claims in eight months, 5,000 billed, 2,450 paid by the plan. Member share of 2,550 is almost entirely the once-a-year deductible, now spent. No chronic or maternity exposure has appeared. Essential still matches the record; revisit only if a third claim lands before renewal.",
+      "memberReasoning": "Your plan still looks like the right fit. You have used it twice this year and the biggest part of your cost was the yearly 1,500 deductible, which you have now met — so anything else this year only costs you the 30% share.",
+      "citations": []
+    }
+  ]
+}

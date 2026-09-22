@@ -1,0 +1,114 @@
+{
+  "applicant": "P4",
+  "applicationRef": "APP-P4",
+  "policyRef": "POL-P4",
+  "personName": "Daniel Fischer",
+  "cohort_and_flags": {
+    "cohort": "standard_mid_career",
+    "confidence": "medium",
+    "flags": [
+      {
+        "severity": "review",
+        "ruleCode": "expected_provider_above_network",
+        "reason": "Named provider sits at top_tier_private_hospital; Balanced's standard network does not admit that tier."
+      },
+      {
+        "severity": "warn",
+        "ruleCode": "treatment_outside_uae_expected",
+        "reason": "Applicant expects some treatment outside the UAE. Geographic scope is undefined in the plan wording — expect insufficient_data at claim time."
+      }
+    ]
+  },
+  "quotes": [
+    {
+      "plan": "Balanced",
+      "annualPremium": 8900,
+      "eligible": true,
+      "rank": 1
+    },
+    {
+      "plan": "Comprehensive",
+      "annualPremium": 16500,
+      "eligible": true,
+      "rank": 2
+    },
+    {
+      "plan": "Essential",
+      "annualPremium": 4200,
+      "eligible": true,
+      "rank": 3
+    }
+  ],
+  "recommendation": {
+    "plan": "Balanced",
+    "brokerReasoning": "No conditions, no near-term needs, comfortable band (ceiling 20,000). Both Balanced and Comprehensive sit inside budget, so this is a network and terms question, not a price one. Balanced's standard network plus 20% outpatient co-pay covers the stated priorities. Two open items: the named provider is top-tier and Balanced's network does not admit that tier, and the applicant expects treatment outside the UAE, which the wording does not define. Neither blocks placement; both belong in front of a reviewer before it is bound.",
+    "memberReasoning": "Balanced fits what you asked for — solid hospital access and reasonable outpatient terms at 8,900 a year, with a 500 deductible and 20% of outpatient bills. One thing to check with us before you decide: the hospital you named is a premium private hospital, which this plan's network does not include. If that hospital matters to you, we should talk about the top plan instead.",
+    "rejections": [
+      {
+        "plan": "Essential",
+        "reason": "Restricted network and 30% outpatient co-pay contradict both stated priorities."
+      },
+      {
+        "plan": "Comprehensive",
+        "reason": "Would admit the named top-tier provider and drop outpatient co-pay to 10%, at 7,600 a year more. Held as the live alternative pending the reviewer's network conversation."
+      }
+    ]
+  },
+  "servicing_events": [
+    {
+      "ref": "CLM-4",
+      "kind": "claim",
+      "policyMonth": 7,
+      "billedAmount": 6000,
+      "outcome": "denied",
+      "plan_pays": 0,
+      "member_pays": 6000,
+      "reason_code": "provider_out_of_network",
+      "ledger_after": {
+        "deductibleMet": 0,
+        "annualPaid": 0,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "APP-2",
+      "kind": "appeal",
+      "policyMonth": 7,
+      "billedAmount": 6000,
+      "outcome": "covered",
+      "plan_pays": 4400,
+      "member_pays": 1600,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 500,
+        "annualPaid": 4400,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "PRE-2",
+      "kind": "preauth",
+      "policyMonth": 9,
+      "billedAmount": 28000,
+      "outcome": "covered",
+      "plan_pays": 22400,
+      "member_pays": 5600,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 500,
+        "annualPaid": 4400,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    }
+  ],
+  "plan_fit_reassessments": []
+}

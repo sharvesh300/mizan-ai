@@ -1,0 +1,91 @@
+{
+  "applicant": "P5",
+  "applicationRef": "APP-P5",
+  "policyRef": "POL-P5",
+  "personName": "Suresh Nair",
+  "cohort_and_flags": {
+    "cohort": "chronic_complex_senior",
+    "confidence": "medium",
+    "flags": [
+      {
+        "severity": "warn",
+        "ruleCode": "high_expected_utilisation",
+        "reason": "Cardiac history plus diabetes; expected utilisation well above cohort median. Not a decline signal — a depth-of-cover signal."
+      }
+    ]
+  },
+  "quotes": [
+    {
+      "plan": "Comprehensive",
+      "annualPremium": 16500,
+      "eligible": true,
+      "rank": 1
+    },
+    {
+      "plan": "Balanced",
+      "annualPremium": 8900,
+      "eligible": true,
+      "rank": 2
+    },
+    {
+      "plan": "Essential",
+      "annualPremium": 4200,
+      "eligible": false,
+      "rank": 3
+    }
+  ],
+  "recommendation": {
+    "plan": "Comprehensive",
+    "brokerReasoning": "Cardiac history with a prior stent plus diabetes, ongoing specialist need, budget not a constraint. Comprehensive is the only placement that treats chronic pre-existing with a 0-month wait — the need is continuous and starts at inception, so any wait is a real gap. Wide network admits the premium tier the cardiac care will use, the 1.5M annual limit sits well clear of expected utilisation, and the 0 deductible with 10% co-pay keeps a high-frequency year affordable. Obvious placement; the reasoning is about depth, not price.",
+    "memberReasoning": "Comprehensive is the right fit for your cardiac care and diabetes. Cover for conditions you already have starts immediately — no waiting period — which matters because your care is ongoing rather than something you can postpone. It includes the wide hospital network, so the specialist hospitals you would use are in. There is no deductible, and you pay 10% of outpatient bills.",
+    "rejections": [
+      {
+        "plan": "Essential",
+        "reason": "Chronic pre-existing excluded entirely."
+      },
+      {
+        "plan": "Balanced",
+        "reason": "6-month chronic wait against a continuous, already-active need — a six-month gap on the exact care this policy is for. Network also excludes the premium tier."
+      }
+    ]
+  },
+  "servicing_events": [
+    {
+      "ref": "CLM-5",
+      "kind": "claim",
+      "policyMonth": 3,
+      "billedAmount": 180000,
+      "outcome": "covered",
+      "plan_pays": 162000,
+      "member_pays": 18000,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 0,
+        "annualPaid": 162000,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "CLM-9",
+      "kind": "reimbursement",
+      "policyMonth": 6,
+      "billedAmount": 4500,
+      "outcome": "insufficient_data",
+      "plan_pays": null,
+      "member_pays": null,
+      "reason_code": "insufficient_data",
+      "ledger_after": {
+        "deductibleMet": 0,
+        "annualPaid": 162000,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    }
+  ],
+  "plan_fit_reassessments": []
+}

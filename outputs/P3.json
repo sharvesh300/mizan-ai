@@ -1,0 +1,109 @@
+{
+  "applicant": "P3",
+  "applicationRef": "APP-P3",
+  "policyRef": "POL-P3",
+  "personName": "Meera Nair",
+  "cohort_and_flags": {
+    "cohort": "chronic_managed_mature",
+    "confidence": "medium",
+    "flags": [
+      {
+        "severity": "warn",
+        "ruleCode": "chronic_wait_vs_horizon",
+        "reason": "Two managed chronic conditions with a 0-month stated horizon against Balanced's 6-month chronic wait. Cover is real but not immediate — confirm the applicant understands the first six months."
+      }
+    ]
+  },
+  "quotes": [
+    {
+      "plan": "Balanced",
+      "annualPremium": 8900,
+      "eligible": true,
+      "rank": 1
+    },
+    {
+      "plan": "Comprehensive",
+      "annualPremium": 16500,
+      "eligible": true,
+      "rank": 2
+    },
+    {
+      "plan": "Essential",
+      "annualPremium": 4200,
+      "eligible": false,
+      "rank": 3
+    }
+  ],
+  "recommendation": {
+    "plan": "Balanced",
+    "brokerReasoning": "Genuinely arguable between Balanced and Comprehensive — the closest call of the five. Both cover chronic pre-existing; they differ on when (6 months vs 0) and on price (8,900 vs 16,500). Conditions are managed and stable on medication, so the first six months carry routine follow-up cost, not clinical risk. Stated priorities name cost explicitly alongside chronic depth. Balanced wins on 7,600 of annual saving against a bounded six-month gap. Worth a reviewer's eyes: if the applicant cannot self-fund that window, this flips.",
+    "memberReasoning": "Balanced gives you ongoing cover for your diabetes and blood pressure at 8,900 a year. One thing to plan around: cover for conditions you already have starts after 6 months on the policy, so treatment for those two before then is yours to pay. After that you are covered, with a 500 deductible and 20% of outpatient bills. We chose it over the top plan because that one would cost nearly double and the only real difference for you is those first six months.",
+    "rejections": [
+      {
+        "plan": "Essential",
+        "reason": "Chronic pre-existing not covered at all — excluded on the applicant's primary need."
+      },
+      {
+        "plan": "Comprehensive",
+        "reason": "Removes the 6-month chronic wait, which is the only material difference here, at 7,600 a year more. On stable managed conditions that is a poor trade against a stated cost priority."
+      }
+    ]
+  },
+  "servicing_events": [
+    {
+      "ref": "CLM-3",
+      "kind": "claim",
+      "policyMonth": 4,
+      "billedAmount": 2800,
+      "outcome": "denied",
+      "plan_pays": 0,
+      "member_pays": 2800,
+      "reason_code": "waiting_period_not_elapsed",
+      "ledger_after": {
+        "deductibleMet": 0,
+        "annualPaid": 0,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "APP-1",
+      "kind": "appeal",
+      "policyMonth": 4,
+      "billedAmount": 2800,
+      "outcome": "upheld",
+      "plan_pays": 0,
+      "member_pays": 2800,
+      "reason_code": "waiting_period_not_elapsed",
+      "ledger_after": {
+        "deductibleMet": 0,
+        "annualPaid": 0,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    },
+    {
+      "ref": "CLM-8",
+      "kind": "claim",
+      "policyMonth": 7,
+      "billedAmount": 2600,
+      "outcome": "covered",
+      "plan_pays": 1680,
+      "member_pays": 920,
+      "reason_code": "covered",
+      "ledger_after": {
+        "deductibleMet": 500,
+        "annualPaid": 1680,
+        "sublimitUsed": {
+          "maternity": 0,
+          "dental_optical": 0
+        }
+      }
+    }
+  ],
+  "plan_fit_reassessments": []
+}
