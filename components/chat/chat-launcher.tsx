@@ -17,16 +17,16 @@ import { cn } from "cn";
  * `attention` is computed on the server and passed in, so a closed launcher
  * costs one boolean rather than a poll.
  */
-export function ChatLauncher({ attention = false }: { attention?: boolean }) {
+export function ChatLauncher({ attention = false, href = "/applications/new/chat" }: { attention?: boolean; /** Where the launcher goes: the intake chat, or a servicing conversation that is waiting on the member. */ href?: string }) {
   const pathname = usePathname();
 
   // Inside the chat itself the launcher is noise — and on the full-page chat
   // it would sit on top of the composer.
-  if (pathname.startsWith("/applications/new/chat")) return null;
+  if (pathname.startsWith("/applications/new/chat") || /^\/policies\/[^/]+\/service\//.test(pathname)) return null;
 
   return (
     <Link
-      href="/applications/new/chat"
+      href={href}
       aria-label={attention ? "Open your chat — something is waiting for you" : "Open your chat"}
       className={cn(
         "fixed right-4 bottom-4 z-40 flex size-13 items-center justify-center rounded-full bg-brand text-brand-foreground shadow-lg transition-transform",
@@ -37,7 +37,7 @@ export function ChatLauncher({ attention = false }: { attention?: boolean }) {
       <MessageCircleIcon className="size-5.5" />
       {attention ? (
         <span className="absolute top-0.5 right-0.5 flex size-3.5">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-60" />
+          <span className="absolute inline-flex size-full motion-safe:animate-ping rounded-full bg-warning opacity-60" />
           <span className="relative inline-flex size-3.5 rounded-full bg-warning ring-2 ring-background" />
         </span>
       ) : null}

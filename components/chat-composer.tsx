@@ -20,8 +20,16 @@ export function ChatComposer({
   suggestions = [],
   placeholder = "Tell me what you're after…",
   initials,
+  onSend,
+  footnote = "Enter sends · Shift + Enter for a new line · nothing goes to an advisor until you say so",
 }: {
   conversationId: string;
+  /**
+   * How a message is delivered. Defaults to the intake chat's action; the servicing thread supplies its own,
+   * so one composer (and one set of keyboard and pending behaviour) serves both conversations.
+   */
+  onSend?: (text: string) => Promise<unknown>;
+  footnote?: string;
   suggestions?: string[];
   placeholder?: string;
   initials?: string;
@@ -34,12 +42,16 @@ export function ChatComposer({
   const send = (text: string) => {
     const answer = text.trim();
     if (!answer || pending) return;
-    const formData = new FormData();
-    formData.set("answer", answer);
     setValue("");
     setSent(answer);
     startTransition(async () => {
-      await sendChatMessage(conversationId, formData);
+      if (onSend) {
+        await onSend(answer);
+      } else {
+        const formData = new FormData();
+        formData.set("answer", answer);
+        await sendChatMessage(conversationId, formData);
+      }
       // The thread now holds the real message; drop the stand-in.
       setSent(null);
       inputRef.current?.focus();
@@ -115,16 +127,14 @@ export function ChatComposer({
           </Button>
         </form>
 
-        <p className="px-1 text-[11px] text-muted-foreground">
-          Enter sends · Shift + Enter for a new line · nothing goes to an advisor until you say so
-        </p>
+        <p className="px-1 text-[11px] text-muted-foreground">{footnote}</p>
       </div>
     </div>
   );
 }
 
 /** Three dots, the universal "still here". */
-function TypingIndicator() {
+export function TypingIndicator() {
   return (
     <div className="flex items-center gap-2" role="status" aria-label="Assistant is typing">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
