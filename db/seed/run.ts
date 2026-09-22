@@ -15,7 +15,7 @@
 //      teardown-and-load runs in one transaction, so a failure rolls the
 //      database back to exactly what it was — the dropped triggers included,
 //      since SQLite DDL is transactional.
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { applyAppendOnlyGuards, db, dropAppendOnlyGuards } from "../client";
 import * as schema from "../schema";
 import type {
@@ -23,12 +23,9 @@ import type {
   ApplicationStatus,
   BenefitClass,
   BudgetBand,
-  CareSetting,
   ConditionStability,
   ConfidenceLevel,
   DentalOpticalTier,
-  EventKind,
-  EventOutcome,
   FitVerdict,
   FlagSeverity,
   IntakeSource,
@@ -37,7 +34,6 @@ import type {
   PolicyStatus,
   PriorityTag,
   ProviderTier,
-  ReasonCode,
   RecoStatus,
   RelationshipType,
   ReviewAction,
@@ -45,7 +41,9 @@ import type {
   ReviewSubject,
   UserRole,
 } from "../schema";
+import { rebuildLedger, checkReplay } from "@/lib/servicing/store";
 import fixtures from "./fixtures.json";
+import { buildServicingSeed } from "./servicing";
 
 const ts = (iso: string | null | undefined): Date | null => (iso == null ? null : new Date(iso));
 
@@ -78,6 +76,8 @@ const tablesInDeleteOrder = [
 
   // v1 · core
   schema.planFitReassessment,
+  // Before `servicingEvent`: a payout points at the event it pays for, so the log cannot be cleared under it.
+  schema.claimSettlement,
   schema.benefitLedger,
   schema.servicingEvent,
   schema.policy,
@@ -102,6 +102,10 @@ const tablesInDeleteOrder = [
   schema.person,
   schema.appUser,
 ];
+
+// Built before the transaction so it is in scope for the summary, and so a bad fixture fails
+// before anything is wiped. Pure: adjudicates every supplied event through lib/servicing.
+const servicing = buildServicingSeed(fixtures, { appeals: process.env.SEED_APPEALS === "pending" ? "pending" : "decided" });
 
 await db.run(sql`begin`);
 try {
@@ -358,47 +362,12 @@ try {
     })),
   );
 
-  await db.insert(schema.servicingEvent).values(
-    fixtures.servicing_event.map((row) => ({
-      id: row.id,
-      externalRef: row.external_ref,
-      policyId: row.policy_id,
-      kind: lit<EventKind>(row.kind),
-      policyMonth: row.policy_month,
-      benefitClass: litN<BenefitClass>(row.benefit_class),
-      setting: litN<CareSetting>(row.setting),
-      providerTier: litN<ProviderTier>(row.provider_tier),
-      billedAmount: row.billed_amount,
-      estimatedAmount: row.estimated_amount,
-      description: row.description,
-      evidenceText: row.evidence_text,
-      submittedByUserId: row.submitted_by_user_id,
-      occurredOn: row.occurred_on,
-      outcome: litN<EventOutcome>(row.outcome),
-      reasonCode: litN<ReasonCode>(row.reason_code),
-      planPays: row.plan_pays,
-      memberPays: row.member_pays,
-      calculation: row.calculation,
-      ledgerBefore: row.ledger_before,
-      ledgerAfter: row.ledger_after,
-      memberExplanation: row.member_explanation,
-      brokerExplanation: row.broker_explanation,
-      decidedBy: litN<ActorKind>(row.decided_by),
-      decidedByUserId: row.decided_by_user_id,
-      supersedesEventId: row.supersedes_event_id,
-      appealOfEventId: row.appeal_of_event_id,
-    })),
-  );
-
-  await db.insert(schema.benefitLedger).values(
-    fixtures.benefit_ledger.map((row) => ({
-      policyId: row.policy_id,
-      deductibleMet: row.deductible_met,
-      annualPaid: row.annual_paid,
-      sublimitUsed: row.sublimit_used,
-      lastEventId: row.last_event_id,
-    })),
-  );
+  // The servicing history is not typed in: every event is adjudicated by the engine and
+  // the ledger is rebuilt by replaying the log (see `servicing` above the transaction).
+  await db.insert(schema.servicingEvent).values(servicing.events);
+  await db.insert(schema.reviewTask).values(servicing.tasks);
+  if (servicing.decisions.length > 0) await db.insert(schema.reviewDecision).values(servicing.decisions);
+  for (const row of fixtures.policy) await rebuildLedger(row.id);
 
   await db.insert(schema.planFitReassessment).values(
     fixtures.plan_fit_reassessment.map((row) => ({
@@ -415,6 +384,7 @@ try {
   );
 
   await db.run(sql`commit`);
+
 } catch (error) {
   await db.run(sql`rollback`);
   throw error;
@@ -423,6 +393,24 @@ try {
   // SQLite has already restored them with the rest of the transaction and
   // this is a no-op.
   applyAppendOnlyGuards();
+}
+
+// Payouts (§payouts), opened AFTER the commit and through the REAL code path rather than written as fixtures,
+// so the seeded history can never disagree with what a live claim would produce: `owesPayment` alone decides
+// which of the thirteen events owe anything, and the pre-authorizations and denials correctly open nothing.
+// Two are then carried to their end states by the real verbs, so a fresh seed shows all three rather than a
+// queue of identical untouched rows.
+const settled = await seedSettlements(fixtures.policy);
+
+// The seed checks its own work: the ledger it just wrote must equal a replay of the history it
+// just wrote. Nothing else in the seed would notice a projection that had drifted from its log.
+
+const reports = await Promise.all(fixtures.policy.map((row) => checkReplay(row.id)));
+const drifted = reports.filter((report) => !report.ok);
+if (drifted.length > 0) {
+  console.error("seed produced a ledger that does not match its own history:");
+  for (const report of drifted) console.error(report.policyId, report.ledgerDiffs, report.drifted);
+  process.exit(1);
 }
 
 console.log("seeded:", {
@@ -447,7 +435,52 @@ console.log("seeded:", {
   reviewTask: fixtures.review_task.length,
   reviewDecision: fixtures.review_decision.length,
   policy: fixtures.policy.length,
-  servicingEvent: fixtures.servicing_event.length,
-  benefitLedger: fixtures.benefit_ledger.length,
+  servicingEvent: servicing.events.length,
+  benefitLedger: fixtures.policy.length,
   planFitReassessment: fixtures.plan_fit_reassessment.length,
+  claimSettlement: `${settled.opened} opened, ${settled.approved} approved, ${settled.paid} paid`,
+  replayChecked: `${reports.length} of ${fixtures.policy.length} policies`,
 });
+
+/**
+ * Open payouts for the seeded history, and carry two of them to their end states.
+ *
+ * Deliberately driven through `openSettlementForEvent`, `approvePayment` and `markPaid` — the same functions a
+ * live claim uses — so this can never seed a payout the real system would not have created, or a state it could
+ * not have reached. A fixture table of settlement rows would drift the first time the rule changed.
+ */
+async function seedSettlements(policies: { id: string }[]): Promise<{ opened: number; approved: number; paid: number }> {
+  const { openSettlementForEvent, approvePayment, markPaid } = await import("@/lib/ai/servicing-settlement");
+  const advisor = (await db.select().from(schema.appUser)).find((u) => u.role === "advisor");
+  if (!advisor) return { opened: 0, approved: 0, paid: 0 };
+
+  for (const row of policies) {
+    const events = await db.select({ id: schema.servicingEvent.id }).from(schema.servicingEvent).where(eq(schema.servicingEvent.policyId, row.id));
+    for (const e of events) await openSettlementForEvent(row.id, e.id);
+  }
+
+  const opened = await db.select().from(schema.claimSettlement);
+  const taskOf = new Map(
+    (await db.select().from(schema.reviewTask).where(eq(schema.reviewTask.subjectType, "settlement"))).map((t) => [t.subjectId, t.id]),
+  );
+  /** The event a demo state is pinned to, by its stable external reference — never by position. */
+  const taskFor = async (eventRef: string) => {
+    const [event] = await db.select({ id: schema.servicingEvent.id }).from(schema.servicingEvent).where(eq(schema.servicingEvent.externalRef, eventRef));
+    const settlement = event ? opened.find((s) => s.servicingEventId === event.id) : undefined;
+    return settlement ? (taskOf.get(settlement.id) ?? null) : null;
+  };
+
+  let approved = 0;
+  let paid = 0;
+  // CLM-1: approved and paid — the member's card shows a date they could check against their bank.
+  const clm1 = await taskFor("CLM-1");
+  if (clm1) {
+    if ((await approvePayment({ taskId: clm1, advisorUserId: advisor.id, note: "Invoice matched the clinic's own reference; released." })).ok) approved += 1;
+    if ((await markPaid({ taskId: clm1, advisorUserId: advisor.id, paymentReference: "TRF-20260115-001" })).ok) paid += 1;
+  }
+  // CLM-2: approved, NOT paid — the state that proves the two verbs are genuinely separate.
+  const clm2 = await taskFor("CLM-2");
+  if (clm2 && (await approvePayment({ taskId: clm2, advisorUserId: advisor.id, note: "Maternity cap applied correctly; approved for payment run." })).ok) approved += 1;
+
+  return { opened: opened.length, approved, paid };
+}
