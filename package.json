@@ -11,7 +11,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "bun run db/seed/run.ts"
+    "db:seed": "bun run db/seed/run.ts",
+    "dump:outputs": "bun --conditions=react-server run db/seed/dump-outputs.ts",
+    "check:servicing": "bun run db/seed/check-servicing.ts && bun run db/seed/check-servicing-tools.ts && bun run db/seed/check-cards.tsx && bun run db/seed/check-ledger.ts && bun run db/seed/check-registers.ts && bun run db/seed/check-servicing-session.ts && bun run db/seed/check-appeal.ts && bun run db/seed/check-appeal-signoff.ts && bun run db/seed/check-handoff.ts && bun --conditions=react-server run db/seed/check-reassess.ts && bun --conditions=react-server run db/seed/check-settlement.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

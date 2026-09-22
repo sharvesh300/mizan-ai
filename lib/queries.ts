@@ -3,10 +3,13 @@
 // (cohort, flags, reviewer decisions, confidence), and the broker helpers
 // return the whole record.
 
-import { and, asc, desc, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { cohortLabel } from "@/lib/domain";
+import { cohortLabel, confidenceBand, dateLabel } from "@/lib/domain";
+import { payeeOf } from "@/lib/servicing/settlement";
 import { loadAssessmentRecord } from "@/lib/assessment/load";
+import { servicingSubjects } from "@/lib/servicing/queue";
+export { getStraightThrough, type ServicingSubject, type StraightThrough } from "@/lib/servicing/queue";
 import type { PlanTerms } from "@/lib/assessment";
 import { estimateAnnualCost } from "@/lib/recommendation/cost";
 import { buildScenario, scenarioForRecord } from "@/lib/recommendation/scenarios";
@@ -22,9 +25,11 @@ import {
   assessment,
   assessmentFlag,
   benefitLedger,
+  claimSettlement,
   conversation,
   conversationAction,
   conversationQuestion,
+  customerEventView,
   message,
   person,
   plan,
@@ -36,7 +41,6 @@ import {
   reviewDecision,
   reviewTask,
   servicingEvent,
-  type ConfidenceLevel,
 } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
@@ -1140,21 +1144,157 @@ export async function listAllPolicies() {
  * the ledger is only a projection of it, so anything that reasons about "what
  * happened" reads this, not the counters.
  */
-export async function listEvents(policyId: string) {
+/** One policy with its plan, projected ledger and the person it covers. */
+export async function getPolicyRecord(policyId: string) {
+  const [row] = await db
+    .select({ policy, plan, ledger: benefitLedger, subject: person })
+    .from(policy)
+    .innerJoin(plan, eq(policy.planId, plan.id))
+    .innerJoin(person, eq(policy.personId, person.id))
+    .leftJoin(benefitLedger, eq(benefitLedger.policyId, policy.id))
+    .where(eq(policy.id, policyId))
+    .limit(1);
+  return row ?? null;
+}
+export type PolicyRecord = NonNullable<Awaited<ReturnType<typeof getPolicyRecord>>>;
+
+// The two audiences read the event log through DIFFERENT functions, and the
+// difference is in the types, not in a conditional. The member's rows come from
+// `customer_event_view` (db/schema/views.ts), which cannot project confidence,
+// uncertainty_reason, decided_by or the broker's prose — so a member component
+// that reaches for one is a type error, not a leak waiting for a refactor.
+
+/** A member's history: the view's columns and nothing else, oldest month first. */
+export async function listMemberEvents(policyId: string) {
   return db
     .select()
+    .from(customerEventView)
+    .where(eq(customerEventView.policyId, policyId))
+    .orderBy(asc(customerEventView.policyMonth), asc(customerEventView.createdAt));
+}
+export type MemberEvent = Awaited<ReturnType<typeof listMemberEvents>>[number];
+
+/**
+ * The event log for a policy, oldest month first — BROKER ONLY. The authoritative
+ * history: the ledger is only a projection of it, so anything that reasons about
+ * "what happened" reads this, not the counters.
+ */
+export async function listBrokerEvents(policyId: string) {
+  return db
+    .select({ event: servicingEvent, decidedByName: appUser.fullName })
     .from(servicingEvent)
+    .leftJoin(appUser, eq(servicingEvent.decidedByUserId, appUser.id))
     .where(eq(servicingEvent.policyId, policyId))
     .orderBy(asc(servicingEvent.policyMonth), asc(servicingEvent.createdAt));
 }
+export type BrokerEvent = Awaited<ReturnType<typeof listBrokerEvents>>[number];
 
-export async function listReassessments(policyId: string) {
+/**
+ * What a member may read about a fit review: the LATEST verdict only, in their own words — history is a broker's
+ * concern (§5.5's "one line, not a log" for the member's register). A `recommend_change` verdict is a sales act
+ * (plan §2.3, §17): it is withheld until its review task has been resolved with `approve` or `edit`, the same gate
+ * `reassessmentApproved` enforces on the session side — done here as a plain join so the read layer stays
+ * self-contained and never reaches into `lib/ai`.
+ */
+export async function listMemberReassessments(policyId: string) {
+  const [latest] = await db
+    .select({
+      id: planFitReassessment.id,
+      verdict: planFitReassessment.verdict,
+      memberReasoning: planFitReassessment.memberReasoning,
+      citations: planFitReassessment.citations,
+      suggestedPlanName: plan.name,
+    })
+    .from(planFitReassessment)
+    .leftJoin(plan, eq(planFitReassessment.recommendedPlanId, plan.id))
+    .where(eq(planFitReassessment.policyId, policyId))
+    // `createdAt` is unix SECONDS: two reassessments from the same request (a claim, then its own reassessment)
+    // can tie on it. `rowid` is SQLite's own write order, and never ties — the same discipline as `message.seq`.
+    .orderBy(desc(planFitReassessment.createdAt), desc(sql`"plan_fit_reassessment".rowid`))
+    .limit(1);
+  if (!latest) return [];
+  if (latest.verdict !== "recommend_change") return [latest];
+
+  const [decision] = await db
+    .select({ action: reviewDecision.action })
+    .from(reviewDecision)
+    .innerJoin(reviewTask, eq(reviewDecision.reviewTaskId, reviewTask.id))
+    .where(and(eq(reviewTask.subjectType, "reassessment"), eq(reviewTask.subjectId, latest.id)))
+    // A resolved task carries exactly one decision (a task cannot be re-decided — see `loadReassessTask`), so no
+    // tie is possible here the way `planFitReassessment.createdAt` above can tie.
+    .orderBy(desc(reviewDecision.decidedAt))
+    .limit(1);
+  const approved = decision?.action === "approve" || decision?.action === "edit";
+  return approved ? [latest] : [];
+}
+export type MemberReassessment = Awaited<ReturnType<typeof listMemberReassessments>>[number];
+
+/** BROKER ONLY — both registers, and who wrote the verdict. */
+export async function listBrokerReassessments(policyId: string) {
   return db
     .select({ reassessment: planFitReassessment, plan })
     .from(planFitReassessment)
     .leftJoin(plan, eq(planFitReassessment.recommendedPlanId, plan.id))
     .where(eq(planFitReassessment.policyId, policyId))
-    .orderBy(desc(planFitReassessment.createdAt));
+    .orderBy(desc(planFitReassessment.createdAt), desc(sql`"plan_fit_reassessment".rowid`));
+}
+
+// ---------------------------------------------------------------------------
+// Payouts (§payouts) — what the plan owes, and whether it has actually been paid
+// ---------------------------------------------------------------------------
+
+/**
+ * What a MEMBER may know about their own money: the status and, once paid, the date. Deliberately NOT the
+ * payment reference, the advisor's name, the note, or the task — those are the broker's record of how the
+ * payment was made, not the member's answer to "where is my money".
+ */
+export async function listMemberSettlements(policyId: string) {
+  const rows = await db
+    .select({ eventId: claimSettlement.servicingEventId, status: claimSettlement.status, paidAt: claimSettlement.paidAt })
+    .from(claimSettlement)
+    .where(eq(claimSettlement.policyId, policyId));
+  return new Map(rows.map((r) => [r.eventId, { status: r.status, paidAt: r.paidAt }]));
+}
+
+/** BROKER ONLY — the whole payout record, including who signed what and the reference the money moved under. */
+export async function listBrokerSettlements(policyId: string) {
+  const rows = await db
+    .select({
+      settlement: claimSettlement,
+      eventRef: servicingEvent.externalRef,
+      eventId: servicingEvent.id,
+      eventKind: servicingEvent.kind,
+    })
+    .from(claimSettlement)
+    .innerJoin(servicingEvent, eq(claimSettlement.servicingEventId, servicingEvent.id))
+    .where(eq(claimSettlement.policyId, policyId))
+    .orderBy(desc(sql`"claim_settlement".rowid`));
+  if (rows.length === 0) return [];
+
+  // The open task is what carries the verbs; a paid payout has none, and its panel is read-only.
+  const tasks = await db
+    .select({ id: reviewTask.id, subjectId: reviewTask.subjectId, status: reviewTask.status })
+    .from(reviewTask)
+    .where(and(eq(reviewTask.subjectType, "settlement"), inArray(reviewTask.subjectId, rows.map((r) => r.settlement.id))));
+  const openTaskOf = new Map(tasks.filter((t) => t.status !== "resolved").map((t) => [t.subjectId, t.id]));
+
+  const userIds = [...new Set(rows.flatMap((r) => [r.settlement.approvedByUserId, r.settlement.paidByUserId]).filter((x): x is string => x !== null))];
+  const names = userIds.length ? await db.select({ id: appUser.id, fullName: appUser.fullName }).from(appUser).where(inArray(appUser.id, userIds)) : [];
+  const nameOf = new Map(names.map((n) => [n.id, n.fullName]));
+
+  return rows.map((r) => ({
+    settlementId: r.settlement.id,
+    taskId: openTaskOf.get(r.settlement.id) ?? null,
+    status: r.settlement.status,
+    amount: Number(r.settlement.amount),
+    payee: payeeOf({ kind: r.eventKind }),
+    eventId: r.eventId,
+    eventRef: r.eventRef ?? r.eventId.slice(0, 8),
+    paidOn: r.settlement.paidAt ? dateLabel(r.settlement.paidAt) : null,
+    approvedBy: r.settlement.approvedByUserId ? (nameOf.get(r.settlement.approvedByUserId) ?? null) : null,
+    paidBy: r.settlement.paidByUserId ? (nameOf.get(r.settlement.paidByUserId) ?? null) : null,
+    paymentReference: r.settlement.paymentReference,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,13 +1331,6 @@ export async function listOpenReviewTasks() {
  * the KIND of attention they want rather than listing them all as equal.
  */
 /** `recommendation.confidence` is a number (see CONFIDENCE_VALUE in lib/ai/recommendation-session.ts); band it back for the same badge the assessment side uses. */
-function confidenceBand(value: number | null): ConfidenceLevel | null {
-  if (value == null) return null;
-  if (value >= 0.9) return "high";
-  if (value >= 0.6) return "medium";
-  return "low";
-}
-
 export async function listQueue() {
   const tasks = await db
     .select({ task: reviewTask, assignee: { id: appUser.id, fullName: appUser.fullName } })
@@ -1206,6 +1339,7 @@ export async function listQueue() {
     .where(ne(reviewTask.status, "resolved"))
     .orderBy(desc(reviewTask.priorityScore), asc(reviewTask.createdAt));
   if (tasks.length === 0) return [];
+  const servicing = await servicingSubjects(tasks);
 
   const applicationIds = tasks
     .filter(({ task }) => task.subjectType === "application")
@@ -1246,7 +1380,7 @@ export async function listQueue() {
 
   if (applicationIds.length === 0) {
     return tasks.map((row) => {
-      if (row.task.subjectType !== "recommendation") return { ...row, subject: null };
+      if (row.task.subjectType !== "recommendation") return { ...row, subject: servicing.get(row.task.id) ?? null };
       const found = byRecommendation.get(row.task.subjectId);
       if (!found) return { ...row, subject: null };
       return {
@@ -1332,7 +1466,7 @@ export async function listQueue() {
           : null,
       };
     }
-    if (row.task.subjectType !== "application") return { ...row, subject: null };
+    if (row.task.subjectType !== "application") return { ...row, subject: servicing.get(row.task.id) ?? null };
     const app = byApplication.get(row.task.subjectId);
     const assessed = latestAssessment.get(row.task.subjectId);
     const own = assessed ? flags.filter((f) => f.assessmentId === assessed.id) : [];
@@ -1361,9 +1495,17 @@ export async function listQueue() {
 
 export async function listRecentlyResolvedTasks(limit = 10) {
   return db
-    .select({ task: reviewTask, assignee: { id: appUser.id, fullName: appUser.fullName } })
+    .select({
+      task: reviewTask,
+      assignee: { id: appUser.id, fullName: appUser.fullName },
+      // Where a servicing task lives: its event's policy, or its conversation's. Null for every other kind.
+      eventPolicyId: servicingEvent.policyId,
+      conversationPolicyId: conversation.policyId,
+    })
     .from(reviewTask)
     .leftJoin(appUser, eq(reviewTask.assignedToUserId, appUser.id))
+    .leftJoin(servicingEvent, and(eq(reviewTask.subjectType, "servicing_event"), eq(reviewTask.subjectId, servicingEvent.id)))
+    .leftJoin(conversation, and(eq(reviewTask.subjectType, "conversation"), eq(reviewTask.subjectId, conversation.id)))
     .where(eq(reviewTask.status, "resolved"))
     .orderBy(desc(reviewTask.resolvedAt))
     .limit(limit);

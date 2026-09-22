@@ -5,8 +5,10 @@
 // status never gets a different colour on one screen than another, and the
 // tone names line up with the semantic tokens registered in app/globals.css.
 
+import { monthYear, policyMonthStart } from "@/lib/servicing/dates";
 import type {
   ApplicationStatus,
+  ConfidenceLevel,
   ConversationStatus,
   EventKind,
   EventOutcome,
@@ -258,6 +260,12 @@ export const reviewActionLabel: Record<ReviewAction, string> = {
   uphold: "Upheld",
   overturn: "Overturned",
   request_info: "Asked the applicant for more",
+  reply: "Replied in the thread",
+  resolve: "Resolved",
+  hand_off: "Handed to a colleague",
+  called: "Called the member",
+  approve_payment: "Approved the payment",
+  mark_paid: "Marked as paid",
 };
 
 export const reviewActionTone: Record<ReviewAction, Tone> = {
@@ -268,6 +276,12 @@ export const reviewActionTone: Record<ReviewAction, Tone> = {
   uphold: "neutral",
   overturn: "success",
   request_info: "warning",
+  reply: "info",
+  resolve: "success",
+  hand_off: "neutral",
+  called: "info",
+  approve_payment: "success",
+  mark_paid: "success",
 };
 
 export const recoStatusLabel: Record<RecoStatus, string> = {
@@ -290,6 +304,18 @@ export const recoStatusTone: Record<RecoStatus, Tone> = {
 export const cohortLabel = (cohort: string): string =>
   cohort.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
+// Member-language names for the engine's vocabulary live next to the engine; re-exported so a
+// surface imports its labels from one place.
+export { benefitClassLabel, providerTypeLabel } from "@/lib/servicing/labels";
+
+/** How sure the system was, as a band. Broker-only vocabulary. */
+export function confidenceBand(value: number | null): ConfidenceLevel | null {
+  if (value == null) return null;
+  if (value >= 0.9) return "high";
+  if (value >= 0.6) return "medium";
+  return "low";
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
@@ -305,6 +331,13 @@ export const money = (value: number | null | undefined): string =>
 
 export const percent = (value: number | null | undefined): string =>
   value == null ? "—" : `${value}%`;
+
+/**
+ * A policy month as a member would place it: "Month 8 · September 2026". Members do not think in
+ * months since inception, so the calendar date always travels with the number.
+ */
+export const monthWithDate = (inceptionDate: string, month: number): string =>
+  `Month ${month} · ${monthYear(policyMonthStart(inceptionDate, month))}`;
 
 export const monthsLabel = (months: number | null | undefined): string =>
   months == null ? "—" : months === 0 ? "No wait" : `${months} month${months === 1 ? "" : "s"}`;
