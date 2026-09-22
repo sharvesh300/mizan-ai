@@ -5,6 +5,7 @@ import { Funnel } from "@/components/crm/funnel";
 import { QueueRow } from "@/components/crm/queue-row";
 import { SectionCard, SectionLink } from "@/components/crm/section-card";
 import { StatRow, StatTile } from "@/components/crm/stat-tile";
+import { StraightThroughBand } from "@/components/crm/straight-through-band";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/domain";
 import {
   getAdvisorDashboard,
+  getStraightThrough,
   listApplicationsForUser,
   listPoliciesForUser,
 } from "@/lib/queries";
@@ -195,8 +197,7 @@ function StartHere() {
  * queue cannot show that about itself).
  */
 async function AdvisorOverview({ name }: { name: string }) {
-  const { queue, counts, money: sums, funnel, uncertainty, stalled, decisions, decisionsThisWeek } =
-    await getAdvisorDashboard();
+  const [{ queue, counts, money: sums, funnel, uncertainty, stalled, decisions, decisionsThisWeek }, straightThrough] = await Promise.all([getAdvisorDashboard(), getStraightThrough()]);
 
   const top = queue.slice(0, 5);
   const lowConfidence = uncertainty.find((row) => row.level === "low")?.count ?? 0;
@@ -232,6 +233,8 @@ async function AdvisorOverview({ name }: { name: string }) {
             href="/policies"
           />
         </StatRow>
+
+        <StraightThroughBand s={straightThrough} queue={queue} />
 
         <SectionCard
           flush

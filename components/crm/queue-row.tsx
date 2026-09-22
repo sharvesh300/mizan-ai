@@ -1,10 +1,13 @@
 import { ArrowRightIcon, CheckIcon, TriangleAlertIcon, WrenchIcon } from "lucide-react";
 import Link from "next/link";
 import { approveAssessment, approveRecommendation } from "@/app/applications/[id]/actions";
+import { ArithmeticDiff } from "@/components/servicing/case/arithmetic";
+import { ConfirmReversalButton } from "@/components/servicing/case/confirm-reversal-button";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Item, ItemActions, ItemContent } from "@/components/ui/item";
-import { cohortLabel, dateLabel, engineNote, reviewStatusLabel, reviewStatusTone, sameNote } from "@/lib/domain";
+import { ESCALATION_LABEL } from "@/lib/servicing/escalation";
+import { cohortLabel, dateLabel, engineNote, money, reviewStatusLabel, reviewStatusTone, sameNote } from "@/lib/domain";
 import type { listQueue } from "@/lib/queries";
 
 export type QueueRowData = Awaited<ReturnType<typeof listQueue>>[number];
@@ -33,8 +36,14 @@ const REVIEW_KIND_LABEL = {
 const REVIEW_KIND_TONE = { quality: "info", selection: "brand" } as const;
 
 /** Where a task's subject lives — a recommendation's own id is not a route, its application's is. */
-export function subjectHref(subjectType: string, subjectId: string, applicationId?: string): string {
-  if (subjectType === "servicing_event") return "/policies";
+export function subjectHref(subjectType: string, subjectId: string, applicationId?: string, policyId?: string | null): string {
+  // A servicing event has a CASE PAGE (plan §13.3.2), a conversation only its policy. Without a policy id — a task
+  // whose subject could not be resolved — the policies list is where either can be found from.
+  if (subjectType === "servicing_event") return policyId ? `/policies/${policyId}/events/${subjectId}` : "/policies";
+  if (subjectType === "conversation") return policyId ? `/policies/${policyId}/conversations/${subjectId}` : "/policies";
+  if (subjectType === "reassessment") return policyId ? `/policies/${policyId}/reassess/${subjectId}` : "/policies";
+  // A payout is decided on the event's own case page — the decision it pays for is the thing worth reading first.
+  if (subjectType === "settlement") return policyId ? `/policies/${policyId}` : "/policies";
   return `/applications/${applicationId ?? subjectId}`;
 }
 
@@ -68,10 +77,12 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
     (task.subjectType === "application" && subject?.kind === "application" && !subject.blocked) ||
     (task.subjectType === "recommendation" && subject?.kind === "recommendation" && subject.reviewKind === "selection");
   const approveAction = task.subjectType === "recommendation" ? approveRecommendation : approveAssessment;
+  const servicing = subject?.kind === "servicing" ? subject : null;
   const href = subjectHref(
     task.subjectType,
     task.subjectId,
     subject?.kind === "recommendation" ? subject.applicationId : undefined,
+    servicing?.policyId,
   );
 
   return (
@@ -91,6 +102,17 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
                 {REVIEW_KIND_LABEL[subject.reviewKind]}
               </StatusBadge>
             ) : null}
+            {servicing?.overturn ? <StatusBadge tone="brand">Reversal to sign</StatusBadge> : null}
+            {servicing?.task === "undecidable" ? <StatusBadge tone="danger">Undecidable</StatusBadge> : null}
+            {servicing?.task === "quality" ? <StatusBadge tone="info">Quality check</StatusBadge> : null}
+            {servicing?.task === "escalation" && servicing.cause ? <StatusBadge tone="warning">{ESCALATION_LABEL[servicing.cause]}</StatusBadge> : null}
+            {servicing?.task === "reassessment" ? <StatusBadge tone="brand">Plan-fit: recommends a change</StatusBadge> : null}
+            {servicing?.settlement ? (
+              <StatusBadge tone={servicing.settlement.status === "approved" ? "info" : "brand"}>
+                {servicing.settlement.status === "approved" ? "Approved — awaiting payment" : "Payment to approve"}
+              </StatusBadge>
+            ) : null}
+            {servicing?.memberReplied ? <StatusBadge tone="brand">Member replied</StatusBadge> : null}
             {headline?.kind === "failure" ? (
               <StatusBadge tone="warning">
                 <WrenchIcon className="size-3" />
@@ -117,6 +139,12 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
                 <span className="text-foreground">{subject.personName}</span> · {subject.reference} · recommending{" "}
                 {subject.planName}
               </>
+            ) : servicing ? (
+              <>
+                <span className="text-foreground">{servicing.personName}</span> · {servicing.policyRef}
+                {servicing.eventRef ? ` · ${servicing.eventRef}` : ""}
+                {servicing.eventKind ? ` · ${servicing.eventKind}${servicing.amount ? `, ${money(servicing.amount)}` : ""}` : ""}
+              </>
             ) : (
               <>{task.subjectType.replace(/_/g, " ")}</>
             )}
@@ -125,6 +153,46 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
             {" · "}
             {assignee?.fullName ?? "unassigned"}
           </p>
+
+          {servicing?.callback && !compact ? (
+            <p className="text-xs text-muted-foreground text-pretty">
+              <span className="font-medium text-foreground">{servicing.callback.called ? "Called" : "Callback requested"}</span> · {servicing.callback.window} · {servicing.callback.phone}
+            </p>
+          ) : null}
+
+          {/* A payout moves real money, so the row shows the amount and who it goes to before anything is clicked —
+              the same reflex as an overturn's arithmetic. */}
+          {servicing?.settlement && !compact ? (
+            <p className="text-xs text-muted-foreground text-pretty">
+              <span className="font-medium text-foreground">{money(servicing.settlement.amount)}</span>{" "}
+              to the {servicing.settlement.payee === "member" ? "member" : "provider"}
+              {servicing.settlement.status === "approved" ? " · approved, not yet paid" : " · not yet approved"}
+            </p>
+          ) : null}
+
+          {/* A plan-fit recommendation is a premium change, so its row shows the two prices INLINE — the same reflex as an
+              overturn's arithmetic: see the numbers before you decide. */}
+          {servicing?.reassessment && !compact ? (
+            <p className="text-xs text-muted-foreground text-pretty">
+              <span className="font-medium text-foreground">{servicing.reassessment.currentPlanName}</span> {money(servicing.reassessment.currentPremium)}/yr → recommend{" "}
+              <span className="font-medium text-foreground">{servicing.reassessment.recommendedPlanName}</span> {money(servicing.reassessment.recommendedPremium)}/yr
+            </p>
+          ) : null}
+
+          {/* An overturn moves money, so its row shows the arithmetic INLINE: one click to sign, but only after seeing the sum. */}
+          {servicing?.overturn && !compact ? (
+            <div className="space-y-1.5">
+              <ArithmeticDiff
+                compact
+                before={{ outcome: servicing.overturn.before.outcome, planPays: servicing.overturn.before.planPays, memberPays: servicing.overturn.before.memberPays }}
+                after={{ reasonCode: servicing.overturn.after.reasonCode, planPays: servicing.overturn.after.planPays, memberPays: servicing.overturn.after.memberPays }}
+              />
+              <p className="text-xs text-muted-foreground text-pretty">
+                {servicing.overturn.correction.field.replace(/_/g, " ")} corrected {servicing.overturn.correction.from.replace(/_/g, " ")} → {servicing.overturn.correction.to.replace(/_/g, " ")}; deductible met{" "}
+                {money(servicing.overturn.deductible.before)} → {money(servicing.overturn.deductible.after)}.
+              </p>
+            </div>
+          ) : null}
 
           {/* "Open" on every row of a queue of open work says nothing — only a
               task somebody has already picked up is worth a badge here. */}
@@ -140,6 +208,14 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
         </ItemContent>
 
         <ItemActions className="gap-2 max-sm:justify-end">
+          {servicing?.overturn && servicing.eventId && !compact ? (
+            <ConfirmReversalButton
+              policyId={servicing.policyId}
+              eventId={servicing.eventId}
+              taskId={task.id}
+              summary={`${servicing.overturn.before.outcome ?? "denied"} ${money(servicing.overturn.before.planPays)} → covered ${money(servicing.overturn.after.planPays)} plan / ${money(servicing.overturn.after.memberPays)} member`}
+            />
+          ) : null}
           {canApproveInline && !compact ? (
             <form action={approveAction.bind(null, task.id)}>
               <Button type="submit" size="sm" variant="outline">
@@ -154,7 +230,7 @@ export function QueueRow({ row, compact = false }: { row: QueueRowData; compact?
             variant={compact ? "outline" : "default"}
             render={
               <Link href={href}>
-                {compact ? "Open" : "Open record"}
+                {compact ? "Open" : servicing ? "Open the case" : "Open record"}
                 <ArrowRightIcon />
               </Link>
             }

@@ -14,6 +14,8 @@ import { getCurrentUser } from "@/lib/session";
 const isBlockedApplication = (row: QueueRowData) => row.subject?.kind === "application" && row.subject.blocked;
 const needsApplicationDecision = (row: QueueRowData) =>
   row.subject?.kind !== "application" || row.subject.needsDecision;
+/** Servicing tasks say for themselves which kind of attention they want (plan §13.3.1); the other groups read them from here. */
+const servicingGroup = (row: QueueRowData) => (row.subject?.kind === "servicing" ? row.subject.group : null);
 
 /**
  * Three groups, in the order a broker should work them.
@@ -31,23 +33,31 @@ const needsApplicationDecision = (row: QueueRowData) =>
  */
 const GROUPS = [
   {
+    // First: the only group where the system has told you it has NO answer, so the alternative to your attention is a
+    // member with no outcome. Nothing else can resolve it.
+    key: "undecidable",
+    title: "Undecidable from the plan",
+    description: "The plan terms do not decide these, and the system refused to guess. Nothing else can settle them.",
+    match: (row: QueueRowData) => servicingGroup(row) === "undecidable",
+  },
+  {
     key: "blocked",
     title: "Blocked",
-    description: "Cannot move at all until you act. The record is missing something the rules need.",
-    match: (row: QueueRowData) => isBlockedApplication(row),
+    description: "Cannot move until you act. A member is waiting on a person, or the record is missing something the rules need.",
+    match: (row: QueueRowData) => isBlockedApplication(row) || servicingGroup(row) === "blocked",
   },
   {
     key: "uncertain",
     title: "Genuinely uncertain",
     description:
-      "Nothing is wrong with the record. These are close calls the rules would not settle alone — worth more than a glance.",
-    match: (row: QueueRowData) => row.subject?.confidence === "low",
+      "Nothing is stalled. These are close calls the rules would not settle alone — worth more than a glance, and the work a rubber-stamp would ruin.",
+    match: (row: QueueRowData) => row.subject?.confidence === "low" || servicingGroup(row) === "uncertain",
   },
   {
     key: "decide",
     title: "Needs a decision",
-    description: "The system has an answer and is not willing to act on it alone.",
-    match: (row: QueueRowData) => !isBlockedApplication(row) && needsApplicationDecision(row),
+    description: "The system has an answer and is not willing to act on it alone. The work is done — this is one informed click.",
+    match: (row: QueueRowData) => servicingGroup(row) === "decide" || (servicingGroup(row) === null && !isBlockedApplication(row) && needsApplicationDecision(row)),
   },
 ] as const;
 
@@ -125,7 +135,7 @@ export default async function QueuePage() {
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-muted-foreground">Recently resolved</h2>
             <ul className="divide-y rounded-xl border">
-              {resolved.map(({ task, assignee }) => (
+              {resolved.map(({ task, assignee, eventPolicyId, conversationPolicyId }) => (
                 <li key={task.id} className="flex items-center gap-3 px-4 py-3 text-sm">
                   <CheckCircle2Icon className="size-4 shrink-0 text-success" />
                   <div className="min-w-0 flex-1">
@@ -138,7 +148,7 @@ export default async function QueuePage() {
                     nativeButton={false}
                     size="xs"
                     variant="ghost"
-                    render={<Link href={subjectHref(task.subjectType, task.subjectId)}>View</Link>}
+                    render={<Link href={subjectHref(task.subjectType, task.subjectId, undefined, eventPolicyId ?? conversationPolicyId)}>View</Link>}
                   />
                 </li>
               ))}
