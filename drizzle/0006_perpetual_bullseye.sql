@@ -1,0 +1,1 @@
+ALTER TABLE `plan_fit_reassessment` ADD `citations` text DEFAULT '[]' NOT NULL;

@@ -20,6 +20,7 @@ import {
   geographyEnum,
   policyStatusEnum,
   reasonCodeEnum,
+  settlementStatusEnum,
 } from "./enums";
 import { application } from "./application";
 import { plan } from "./catalogue";
@@ -126,3 +127,49 @@ export const benefitLedger = sqliteTable("benefit_ledger", {
   lastEventId: text("last_event_id").references(() => servicingEvent.id),
   rebuiltAt: createdAt("rebuilt_at"),
 });
+
+/**
+ * WHAT WAS ACTUALLY PAID — deliberately not part of the event log above.
+ *
+ * Adjudication decides what the plan OWES; the ledger projects that. Neither says whether the money left. This
+ * table is the third thing: a record of a payout, approved by a person and then marked paid by one.
+ *
+ * It is a separate table rather than columns on `servicing_event` for a reason the database itself enforces —
+ * that log is append-only (see `db/triggers.sql`), so a settlement that changes state twice could not live on
+ * it. Keeping them apart also keeps the invariant clean: a settlement NEVER moves a ledger and never changes a
+ * replay. Drop every settlement row and replay still produces the same deductible, annual total and outcomes.
+ *
+ * `amount` is stored, not derived on read, and it is written from the ENGINE's own figure at approval time,
+ * never typed by a person. A payment made for 2,000 was made for 2,000 forever: if the event is later overturned
+ * the new decision gets its own settlement, and this row stays true about what actually happened.
+ */
+export const claimSettlement = sqliteTable(
+  "claim_settlement",
+  {
+    id: uuidPk(),
+    // One payout per decided event. The unique constraint is the idempotency guard: a retried commit, or two
+    // requests racing, cannot open two payouts for the same claim.
+    servicingEventId: text("servicing_event_id")
+      .notNull()
+      .unique()
+      .references(() => servicingEvent.id),
+    policyId: text("policy_id")
+      .notNull()
+      .references(() => policy.id),
+    status: text("status", { enum: settlementStatusEnum }).notNull().default("awaiting_approval"),
+    amount: amount("amount").notNull(),
+    approvedByUserId: text("approved_by_user_id").references(() => appUser.id),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    paidByUserId: text("paid_by_user_id").references(() => appUser.id),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    /** The advisor's own reference from whatever actually moved the money. Broker-only: never shown to a member. */
+    paymentReference: text("payment_reference"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("claim_settlement_policy_id_idx").on(table.policyId),
+    index("claim_settlement_status_idx").on(table.status),
+    // A payout is worth nothing if it is for nothing: the engine only ever opens one when the plan owes money.
+    check("claim_settlement_amount_positive", sql`${col("amount")} > 0`),
+  ],
+);

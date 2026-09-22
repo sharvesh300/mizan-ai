@@ -99,8 +99,22 @@ export type ActorKind = (typeof actorKindEnum)[number];
 export const recoStatusEnum = ["pending_review", "approved", "edited", "overridden", "superseded"] as const;
 export type RecoStatus = (typeof recoStatusEnum)[number];
 
-export const reviewSubjectEnum = ["application", "recommendation", "servicing_event", "reassessment"] as const;
+// `conversation` is additive: a member who asks for a person BEFORE anything is adjudicated (or whose case
+// stalls on a question) has no servicing event to hang a task on, and a hand-off with no task is a promise
+// nobody will keep. SQLite stores these as text, so widening the tuple is a TS-only change — no migration.
+// `settlement` is additive for the same reason: a payout waiting on a person is not a question about the
+// adjudication (that is settled), so it cannot hang off `servicing_event` without the queue reading it as a
+// dispute about the decision. It is a task about MONEY LEAVING, which is a different kind of attention.
+export const reviewSubjectEnum = ["application", "recommendation", "servicing_event", "reassessment", "conversation", "settlement"] as const;
 export type ReviewSubject = (typeof reviewSubjectEnum)[number];
+
+/**
+ * A payout's life, which is NOT an adjudication (plan §5: the ledger is a projection of what the plan OWES;
+ * this records what it actually PAID). Adjudication decides the amount; these three states are about the money
+ * leaving, and none of them may ever move a ledger or change a replay.
+ */
+export const settlementStatusEnum = ["awaiting_approval", "approved", "paid"] as const;
+export type SettlementStatus = (typeof settlementStatusEnum)[number];
 
 export const reviewStatusEnum = ["open", "in_progress", "resolved"] as const;
 export type ReviewStatus = (typeof reviewStatusEnum)[number];
@@ -117,6 +131,16 @@ export const reviewActionEnum = [
   "uphold",
   "overturn",
   "request_info",
+  // Servicing hand-offs (plan §13.3.2): a person answering a case the agent could not settle. Additive, TS-only.
+  "reply",
+  "resolve",
+  "hand_off",
+  "called",
+  // Settlement (§payouts): approving what the plan owes, and recording that it actually left. Two verbs, not
+  // one — authorising a payment and making it are different acts, on different days, by possibly different
+  // people, and a record that cannot tell them apart cannot answer "was this paid?". Additive, TS-only.
+  "approve_payment",
+  "mark_paid",
 ] as const;
 export type ReviewAction = (typeof reviewActionEnum)[number];
 

@@ -21,6 +21,10 @@ export const planFitReassessment = sqliteTable(
     recommendedPlanId: text("recommended_plan_id").references(() => plan.id),
     brokerReasoning: text("broker_reasoning").notNull(),
     memberReasoning: text("member_reasoning").notNull(),
+    // The events cited in the prose above, structured — not parsed back out of it. The broker text names each by
+    // `ref` (CLM-3); the member text names it by `description`, verbatim, so the UI can turn either into a chip
+    // that scrolls to the row without guessing where a citation starts and ends in free text.
+    citations: text("citations", { mode: "json" }).$type<{ eventId: string; ref: string; description: string }[]>().notNull().default([]),
     createdBy: text("created_by", { enum: actorKindEnum }).notNull().default("system"),
     createdAt: createdAt(),
   },
