@@ -12,12 +12,19 @@ export function UtilizationBar({
   cap,
   hint,
   tone = "brand",
+  fullIsGood = false,
 }: {
   label: string;
   used: number;
   cap: number | null;
   hint?: string;
   tone?: "brand" | "warning";
+  /**
+   * A bar that fills up is usually a warning — a limit running out. A DEDUCTIBLE that fills is the
+   * opposite: it means the member's own share has been paid and the plan now pays. Red there tells a
+   * member something is wrong on the very line that says "met for the year".
+   */
+  fullIsGood?: boolean;
 }) {
   const pct = cap && cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
   const exhausted = cap != null && cap > 0 && used >= cap;
@@ -35,7 +42,7 @@ export function UtilizationBar({
         <ProgressTrack>
           <ProgressIndicator
             className={cn(
-              exhausted ? "bg-destructive" : tone === "warning" ? "bg-warning" : "bg-brand",
+              exhausted ? (fullIsGood ? "bg-success" : "bg-destructive") : tone === "warning" ? "bg-warning" : "bg-brand",
             )}
           />
         </ProgressTrack>
