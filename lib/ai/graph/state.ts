@@ -26,6 +26,8 @@ import {
 } from "@/lib/assessment";
 import { emptyDraft, type IntakeDraft } from "@/lib/intake";
 import type { ConfidenceLevel } from "@/db/schema";
+import type { CommitPlan, ServicingInput, ServicingTurn } from "@/lib/ai/graph/nodes/servicing";
+import type { ServicingToolContext } from "@/lib/ai/tools/servicing";
 import type { CriterionId, CriterionWeight, PreferenceSignal, QuoteRow, TradeOff, TradeOffChoice, WeightExplanation } from "@/lib/recommendation";
 
 /** Last-write-wins annotation — the only reducer shape this graph uses. */
@@ -294,3 +296,33 @@ export type Turn = {
   servedBy: string | null;
   latencyMs: number;
 };
+
+// ---------------------------------------------------------------------------
+// Servicing — one pass through a claim, a pre-authorization or a reimbursement
+// ---------------------------------------------------------------------------
+
+/**
+ * Same discipline as intake and assessment: the graph holds ONE turn's thinking, and durable state is the
+ * rows the session writes afterwards (lib/ai/servicing-session.ts). Nothing here survives the turn — the
+ * conversation's memory is `servicing_state` actions, reloaded and revalidated every time (plan §6).
+ */
+export const ServicingState = Annotation.Root({
+  /** The tool context for this turn: rebuilt from rows by the session, mutated by the tools, read back by the session. */
+  ctx: latest<ServicingToolContext | null>(() => null),
+  /** What the member just did. */
+  input: latest<ServicingInput>(() => ({ kind: "text", text: "" })),
+  /** The conversation so far, for the model's prompt. */
+  transcript: latest<{ role: "member" | "assistant"; text: string }[]>(() => []),
+  /** Per-field problems with a form submission, in words a member can act on. */
+  formErrors: latest<Partial<Record<string, string>>>(() => ({})),
+  /** Refusals from folding the member's act into the draft — for the trace, never shown. */
+  notes: latest<string[]>(() => []),
+  /** The member asked to change something and has not been shown a fresh confirmation. Persisted by the session. */
+  changing: latest<boolean>(() => false),
+
+  turn: latest<ServicingTurn | null>(() => null),
+  /** What the session must write for a finished conversation. */
+  plan: latest<CommitPlan | null>(() => null),
+});
+
+export type ServicingStateType = typeof ServicingState.State;

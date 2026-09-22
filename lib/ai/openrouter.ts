@@ -130,7 +130,15 @@ export function extractJson(text: string): unknown {
   const body = (fenced ? fenced[1] : text).trim();
 
   const start = body.indexOf("{");
-  if (start === -1) throw new Error("no JSON object in model output");
+  if (start === -1) {
+    // Some models, despite the prompt, fall back to their OWN vendor's native function-calling wrapper instead of
+    // a plain JSON object — seen live as `<tool_call>read_policy\n\n</tool_call>`, a tool name this system never
+    // exposed and no arguments to recover. Naming it here (rather than the generic message below) is what let this
+    // get diagnosed from `model_run.error_text` alone, without re-running the failing turn.
+    const wrapped = body.match(/<tool_call>([\s\S]*?)<\/tool_call>/i);
+    if (wrapped) throw new Error(`model used a <tool_call> wrapper instead of the required JSON object: ${JSON.stringify(wrapped[1].trim().slice(0, 200))}`);
+    throw new Error("no JSON object in model output");
+  }
 
   let depth = 0;
   let inString = false;
@@ -231,7 +239,7 @@ export async function structuredCall<T>(input: {
                 (raw.trim()
                   ? `It was:\n${raw.slice(0, 1500)}\n\n`
                   : `It arrived empty — you spent the whole budget before answering. Answer immediately, without thinking it through first.\n\n`) +
-                `Reply again with ONLY the JSON object, matching the shape exactly. No prose, no code fences.`,
+                `Reply again with ONLY the JSON object, matching the shape exactly. No prose, no code fences, and no <tool_call> tag or any other function-calling wrapper — this API is not that kind, and does not read one; put the tool name and its arguments inside the JSON object's own fields.`,
             ),
           ],
     );

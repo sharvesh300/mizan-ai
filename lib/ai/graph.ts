@@ -23,6 +23,15 @@
 //              │              └─> price ∥ weights      (conceded — rebuild around what they said)
 //              └─> compromise ─> verify                (rounds exhausted; closest plan + an advisor)
 //
+//   SERVICING (a policy is live and the member just did something) — lib/ai/servicing-graph.ts
+//     processResponse ──> agent ──┬──> wait      (interrupt: the member owns the next move)
+//                                 ├──> gate ──> commit ──> END   (an outcome; the session writes the event)
+//                                 └──> escalate ──> END          (a hand-off)
+//   The same topology carries an APPEAL: the tool context says which brain runs (`ctx.appeal`), and each has its own
+//   registry — lib/ai/tools/servicing.ts for a claim, lib/ai/tools/appeal.ts for an appeal (plan §5.4). An appeal's
+//   "commit" is either an upheld row written at once, or a PROPOSED overturn that waits for a signature and writes nothing.
+//   It is wired in its own file because this one is `server-only` and that graph must run from a script.
+//
 // Intake is compiled and invoked separately from the other two because it is
 // the applicant's own graph, on its own state shape. Assessment and
 // recommendation are compiled as separate topologies too — they are
