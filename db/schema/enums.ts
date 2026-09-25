@@ -8,6 +8,13 @@
 export const userRoleEnum = ["applicant", "advisor"] as const;
 export type UserRole = (typeof userRoleEnum)[number];
 
+export const identityProviderEnum = ["uae_pass"] as const;
+export type IdentityProvider = (typeof identityProviderEnum)[number];
+
+// UAE PASS account tiers: SOP1 basic, SOP2 verified, SOP3 verified in person.
+export const uaePassAssuranceEnum = ["SOP1", "SOP2", "SOP3"] as const;
+export type UaePassAssurance = (typeof uaePassAssuranceEnum)[number];
+
 export const relationshipTypeEnum = ["self", "spouse", "parent", "child", "other"] as const;
 export type RelationshipType = (typeof relationshipTypeEnum)[number];
 

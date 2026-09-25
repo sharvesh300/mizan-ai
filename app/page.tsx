@@ -6,6 +6,7 @@ import { QueueRow } from "@/components/crm/queue-row";
 import { SectionCard, SectionLink } from "@/components/crm/section-card";
 import { StatRow, StatTile } from "@/components/crm/stat-tile";
 import { StraightThroughBand } from "@/components/crm/straight-through-band";
+import { UaePassCard } from "@/components/identity/uae-pass";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
   listPoliciesForUser,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+import { getVerification } from "@/lib/uae-pass";
 
 export default async function Home() {
   const user = await getCurrentUser();
@@ -41,9 +43,10 @@ export default async function Home() {
 // ---------------------------------------------------------------------------
 
 async function ApplicantOverview({ userId, name }: { userId: string; name: string }) {
-  const [applications, policies] = await Promise.all([
+  const [applications, policies, verification] = await Promise.all([
     listApplicationsForUser(userId),
     listPoliciesForUser(userId),
+    getVerification(userId),
   ]);
   const open = applications.filter((a) => a.status !== "policy_issued");
 
@@ -54,6 +57,8 @@ async function ApplicantOverview({ userId, name }: { userId: string; name: strin
         description="Your cover, your applications, and anything we're still working on."
       />
       <PageBody className="space-y-6">
+        <UaePassCard verification={verification} returnTo="/" />
+
         {policies.length > 0 ? (
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-muted-foreground">Your cover</h2>

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, ShieldCheckIcon } from "lucide-react";
 import { useTransition } from "react";
 import { switchUser } from "@/app/actions";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -30,7 +30,15 @@ const initials = (name: string) =>
  * Stands in for signing in. The brief asks for a view toggle rather than real
  * accounts, so this writes an app_user id to a cookie and re-renders.
  */
-export function UserSwitcher({ users, currentUserId }: { users: SwitcherUser[]; currentUserId: string }) {
+export function UserSwitcher({
+  users,
+  currentUserId,
+  verified = false,
+}: {
+  users: SwitcherUser[];
+  currentUserId: string;
+  verified?: boolean;
+}) {
   const [pending, startTransition] = useTransition();
   const current = users.find((u) => u.id === currentUserId);
 
@@ -59,8 +67,15 @@ export function UserSwitcher({ users, currentUserId }: { users: SwitcherUser[]; 
             </Avatar>
             <span className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-medium">{current?.fullName ?? "Select user"}</span>
-              <span className="truncate text-xs font-normal text-muted-foreground capitalize">
-                {current?.role}
+              <span className="flex min-w-0 items-center gap-1 text-xs font-normal text-muted-foreground">
+                <span className="truncate capitalize">{current?.role}</span>
+                {verified ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <ShieldCheckIcon className="size-3 shrink-0 text-success" aria-hidden />
+                    <span className="truncate">UAE PASS</span>
+                  </>
+                ) : null}
               </span>
             </span>
             <ChevronsUpDownIcon className="size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />

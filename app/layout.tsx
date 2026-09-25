@@ -11,6 +11,7 @@ import { Toaster } from "@/components/ui/toast";
 import { findWaitingServicing } from "@/lib/ai/servicing-session";
 import { listIntakeConversations } from "@/lib/queries";
 import { getCurrentUser, listUsers } from "@/lib/session";
+import { getVerification } from "@/lib/uae-pass";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
@@ -43,6 +44,7 @@ export default async function RootLayout({ children, chat }: LayoutProps<"/">) {
   const chatAttention = intakeWaiting || servicingWaiting !== null;
   const chatHref = !intakeWaiting && servicingWaiting ? `/policies/${servicingWaiting.policyId}/service/${servicingWaiting.conversationId}` : undefined;
   const advisorReply = servicingWaiting?.reason === "advisor_reply" ? servicingWaiting.messageId : null;
+  const verified = currentUser?.role === "applicant" ? (await getVerification(currentUser.id)) !== null : false;
 
   return (
     // suppressHydrationWarning: next-themes writes the theme class onto <html>
@@ -53,7 +55,7 @@ export default async function RootLayout({ children, chat }: LayoutProps<"/">) {
           <Toaster>
             {currentUser ? (
               <SidebarProvider>
-                <AppSidebar user={currentUser} users={users} />
+                <AppSidebar user={currentUser} users={users} verified={verified} />
                 <SidebarInset className="min-w-0">
                   <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-sm">
                     <SidebarTrigger className="-ml-1" />

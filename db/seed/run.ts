@@ -100,6 +100,7 @@ const tablesInDeleteOrder = [
   schema.applicationStatusHistory,
   schema.application,
   schema.person,
+  schema.identityVerification,
   schema.appUser,
 ];
 

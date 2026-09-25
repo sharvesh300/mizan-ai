@@ -73,9 +73,12 @@ const NAV: Record<UserRole, NavGroup[]> = {
 export function AppSidebar({
   user,
   users,
+  verified,
 }: {
   user: SessionUser;
   users: Pick<SessionUser, "id" | "fullName" | "role">[];
+  /** The signed-in applicant has a live UAE PASS verification. */
+  verified: boolean;
 }) {
   const pathname = usePathname();
   const groups = NAV[user.role];
@@ -143,7 +146,7 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        <UserSwitcher users={users} currentUserId={user.id} />
+        <UserSwitcher users={users} currentUserId={user.id} verified={verified} />
       </SidebarFooter>
     </Sidebar>
   );

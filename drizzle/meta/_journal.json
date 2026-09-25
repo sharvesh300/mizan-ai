@@ -57,6 +57,13 @@
       "when": 1790075809827,
       "tag": "0007_happy_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790321230646,
+      "tag": "0008_military_firedrake",
+      "breakpoints": true
     }
   ]
 }

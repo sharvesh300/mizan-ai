@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { SectionCard } from "@/components/crm/section-card";
 import { StatRow, StatTile } from "@/components/crm/stat-tile";
 import { Timeline } from "@/components/crm/timeline";
+import { UaePassBadge } from "@/components/identity/uae-pass";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/domain";
 import { getClient, getClientTimeline } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+import { getVerification } from "@/lib/uae-pass";
 
 const OPEN_STATUSES = ["policy_issued", "declined", "withdrawn", "expired"];
 
@@ -40,6 +42,7 @@ export default async function ClientPage(props: PageProps<"/clients/[id]">) {
 
   const [client, timeline] = await Promise.all([getClient(id), getClientTimeline(id)]);
   if (!client) notFound();
+  const verification = await getVerification(client.person.ownerUserId);
 
   const open = client.applications.filter((row) => !OPEN_STATUSES.includes(row.status));
   const active = client.policies.filter(({ policy }) => policy.status === "active");
@@ -64,6 +67,7 @@ export default async function ClientPage(props: PageProps<"/clients/[id]">) {
           </>
         }
       >
+        <UaePassBadge verification={verification} holder={client.person.relationshipToOwner !== "self"} />
         {active.length > 0 ? (
           <StatusBadge tone="success">Covered</StatusBadge>
         ) : open.length > 0 ? (

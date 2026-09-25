@@ -1,7 +1,10 @@
+import { FingerprintIcon } from "lucide-react";
+import { UaePassButton } from "@/components/identity/uae-pass";
 import { PageBody, PageHeader } from "@/components/page-header";
 import { SubjectFields } from "@/components/subject-fields";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
@@ -14,9 +17,16 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { defaultInception } from "@/lib/intake";
+import { getCurrentUser } from "@/lib/session";
+import { ageFromDob, getVerification } from "@/lib/uae-pass";
 import { submitIntakeForm } from "../actions";
 
-export default function IntakeFormPage() {
+export default async function IntakeFormPage() {
+  const user = await getCurrentUser();
+  const verification = user ? await getVerification(user.id) : null;
+  // Re-collect nothing: a verified date of birth answers "age" before it is asked.
+  const verifiedAge = verification?.dateOfBirth ? ageFromDob(verification.dateOfBirth) : null;
+
   return (
     <>
       <PageHeader
@@ -25,6 +35,19 @@ export default function IntakeFormPage() {
         description="Everything here goes to an advisor along with the plan we suggest. Only age and budget are required — the rest helps us match you better."
       />
       <PageBody>
+        {/* Outside the intake form: the UAE PASS button is a form of its own, and forms cannot nest. */}
+        {verification ? null : (
+          <Alert className="mx-auto mb-6 max-w-3xl">
+            <FingerprintIcon />
+            <AlertTitle>Skip a question with UAE PASS</AlertTitle>
+            <AlertDescription>
+              <p>Verify once and we take your age from your Emirates ID — and your advisor sees a verified identity.</p>
+              <div className="mt-3">
+                <UaePassButton returnTo="/applications/new/form" size="sm" />
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
         {/* A plain server-action form: every field name maps to one column,
             so it works before hydration. `SubjectFields` is the one bit of
             client state — showing the name field only once it's needed. */}
@@ -53,7 +76,19 @@ export default function IntakeFormPage() {
                 <FieldGroup className="sm:grid sm:grid-cols-2 sm:gap-4">
                   <Field>
                     <FieldLabel htmlFor="age">Age</FieldLabel>
-                    <Input id="age" name="age" type="number" min={18} max={100} required placeholder="32" />
+                    <Input
+                      id="age"
+                      name="age"
+                      type="number"
+                      min={18}
+                      max={100}
+                      required
+                      placeholder="32"
+                      defaultValue={verifiedAge ?? undefined}
+                    />
+                    {verifiedAge != null ? (
+                      <FieldDescription>From your UAE PASS verification. Change it if this is for someone else.</FieldDescription>
+                    ) : null}
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="maritalStatus">Marital status</FieldLabel>

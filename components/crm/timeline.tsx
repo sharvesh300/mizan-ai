@@ -1,6 +1,7 @@
 import {
   ClipboardCheckIcon,
   FileTextIcon,
+  FingerprintIcon,
   GavelIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
@@ -23,6 +24,7 @@ import type { Tone } from "@/lib/domain";
  * coloured, and the routine machinery is grey.
  */
 const KIND: Record<TimelineEntry["kind"], { icon: typeof FileTextIcon; tone: Tone; label: string }> = {
+  identity: { icon: FingerprintIcon, tone: "success", label: "Identity" },
   application: { icon: FileTextIcon, tone: "neutral", label: "Application" },
   assessment: { icon: ClipboardCheckIcon, tone: "neutral", label: "Classification" },
   flag: { icon: TriangleAlertIcon, tone: "warning", label: "Flag" },

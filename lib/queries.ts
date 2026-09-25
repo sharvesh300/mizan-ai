@@ -8,6 +8,7 @@ import { db } from "@/db/client";
 import { cohortLabel, confidenceBand, dateLabel } from "@/lib/domain";
 import { payeeOf } from "@/lib/servicing/settlement";
 import { loadAssessmentRecord } from "@/lib/assessment/load";
+import { assuranceLabel, listVerificationHistory } from "@/lib/uae-pass";
 import { servicingSubjects } from "@/lib/servicing/queue";
 export { getStraightThrough, type ServicingSubject, type StraightThrough } from "@/lib/servicing/queue";
 import type { PlanTerms } from "@/lib/assessment";
@@ -597,7 +598,16 @@ export async function getClient(personId: string) {
 /** One thing that happened to a client, normalised across seven tables. */
 export type TimelineEntry = {
   at: Date;
-  kind: "application" | "assessment" | "flag" | "recommendation" | "decision" | "policy" | "servicing" | "reassessment";
+  kind:
+    | "identity"
+    | "application"
+    | "assessment"
+    | "flag"
+    | "recommendation"
+    | "decision"
+    | "policy"
+    | "servicing"
+    | "reassessment";
   title: string;
   detail: string | null;
   /** Who did it. `null` means the system. */
@@ -617,11 +627,12 @@ export type TimelineEntry = {
  * once, newest first.
  */
 export async function getClientTimeline(personId: string): Promise<TimelineEntry[]> {
+  const identity = await getIdentityEntries(personId);
   const applications = await db
     .select({ id: application.id, reference: application.reference })
     .from(application)
     .where(eq(application.personId, personId));
-  if (applications.length === 0) return [];
+  if (applications.length === 0) return identity;
 
   const ids = applications.map((a) => a.id);
   const refOf = new Map(applications.map((a) => [a.id, a.reference]));
@@ -673,6 +684,7 @@ export async function getClientTimeline(personId: string): Promise<TimelineEntry
     : [];
 
   const entries: TimelineEntry[] = [
+    ...identity,
     ...history.map(({ row, actor }) => ({
       at: row.changedAt,
       kind: "application" as const,
@@ -747,6 +759,31 @@ export async function getClientTimeline(personId: string): Promise<TimelineEntry
   return entries
     .filter((entry) => entry.at != null)
     .sort((a, b) => b.at.getTime() - a.at.getTime());
+}
+
+/**
+ * UAE PASS verifications by the person's account holder. Verification belongs
+ * to the login, not the insured person, so a dependant's record shows the
+ * holder's verification and says so.
+ */
+async function getIdentityEntries(personId: string): Promise<TimelineEntry[]> {
+  const [row] = await db
+    .select({ ownerUserId: person.ownerUserId, relationship: person.relationshipToOwner, ownerName: appUser.fullName })
+    .from(person)
+    .innerJoin(appUser, eq(person.ownerUserId, appUser.id))
+    .where(eq(person.id, personId))
+    .limit(1);
+  if (!row) return [];
+
+  const verifications = await listVerificationHistory(row.ownerUserId);
+  return verifications.map((v) => ({
+    at: v.verifiedAt,
+    kind: "identity" as const,
+    title: row.relationship === "self" ? "Identity verified with UAE PASS" : "Account holder verified with UAE PASS",
+    detail: `${assuranceLabel[v.assuranceLevel]} (${v.assuranceLevel}) · Emirates ID ${v.emiratesIdMasked}${v.revokedAt ? " · since disconnected" : ""}`,
+    actor: row.ownerName,
+    href: null,
+  }));
 }
 
 

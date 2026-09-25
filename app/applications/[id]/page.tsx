@@ -14,6 +14,7 @@ import { CriterionBars } from "@/components/crm/criterion-bars";
 import { band as priorityBand } from "@/components/crm/queue-row";
 import { SectionCard } from "@/components/crm/section-card";
 import { AssessmentReview } from "@/components/assessment-review";
+import { UaePassBadge } from "@/components/identity/uae-pass";
 import { CorrectionRequest } from "@/components/correction-request";
 import { RecommendationQualityCheck, RecommendationReview } from "@/components/recommendation-review";
 import { PageBody, PageHeader } from "@/components/page-header";
@@ -63,6 +64,7 @@ import {
   isSelectionReview,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+import { getVerification } from "@/lib/uae-pass";
 
 /**
  * The tab title is the reference, so an advisor with six records open can tell
@@ -87,11 +89,12 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
   // An applicant may only open their own record.
   if (!isAdvisor && record.person.ownerUserId !== user.id) notFound();
 
-  const [declared, quotes, recommendation, policy] = await Promise.all([
+  const [declared, quotes, recommendation, policy, verification] = await Promise.all([
     getDeclared(id),
     getQuotes(id),
     getRecommendation(id),
     getPolicyForApplication(id),
+    isAdvisor ? getVerification(record.person.ownerUserId) : null,
   ]);
 
   const { application: app, person } = record;
@@ -108,6 +111,9 @@ export default async function ApplicationPage(props: PageProps<"/applications/[i
             : `Started ${dateLabel(app.createdAt)} · cover from ${dateLabel(app.policyInception)}`
         }
       >
+        {isAdvisor ? (
+          <UaePassBadge verification={verification} holder={person.relationshipToOwner !== "self"} />
+        ) : null}
         <StatusBadge tone={applicationStatusTone[app.status]}>{applicationStatusLabel[app.status]}</StatusBadge>
         {policy ? (
           <Button
